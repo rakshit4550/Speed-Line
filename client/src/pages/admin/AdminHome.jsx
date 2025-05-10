@@ -37,7 +37,7 @@ function AdminHome() {
           WHITE LABEL
         </Link>
         <Link
-          to="/markettype"
+          to="/proofs"
           className="bg-white  border shadow-xl p-[30px]  text-black  box rounded-lg  font-bold text-[35px] cursor-pointer"
         >
           PROOF TYPE

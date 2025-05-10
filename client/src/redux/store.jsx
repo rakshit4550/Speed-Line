@@ -1,10 +1,16 @@
 import { configureStore } from "@reduxjs/toolkit";
 import whitelabelReducer from "./whitelabel/whitelabelSlice";
-import proofTypesReducer from "./markettype/markettypeSlice";
+import proofReducer from "./markettype/markettypeSlice";
 
-export default configureStore({
+export const store = configureStore({
   reducer: {
     whitelabel: whitelabelReducer,
-    proofTypes: proofTypesReducer,
+    proof: proofReducer,
   },
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware({
+      serializableCheck: false, // For handling FormData
+    }),
 });
+
+export default store;

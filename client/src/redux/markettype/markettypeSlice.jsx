@@ -1,74 +1,135 @@
+// src/redux/proof/proofSlice.js
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import axios from "axios";
 
-const API_URL = "http://localhost:2030"; // Replace with your API
+// API URL - adjust as needed
+const API_URL = "http://localhost:2030";
 
-export const fetchProofTypes = createAsyncThunk(
-  "proofTypes/fetchAll",
-  async () => {
-    const res = await axios.get(API_URL);
-    return res.data;
+// Async thunks for API operations
+export const fetchAllProofs = createAsyncThunk(
+  "proof/fetchAll",
+  async (user, { rejectWithValue }) => {
+    try {
+      const response = await axios.get(`${API_URL}/proof/all?user=${user}`);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || "Failed to fetch proofs");
+    }
   }
 );
 
-export const createProofType = createAsyncThunk(
-  "proofTypes/create",
-  async (data) => {
-    const res = await axios.post(API_URL, data);
-    return res.data;
+export const fetchProofByType = createAsyncThunk(
+  "proof/fetchByType",
+  async ({ type, user }, { rejectWithValue }) => {
+    try {
+      const response = await axios.get(`${API_URL}/proof/${type}?user=${user}`);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || "Failed to fetch proof");
+    }
   }
 );
 
-export const updateProofType = createAsyncThunk(
-  "proofTypes/update",
-  async ({ id, data }) => {
-    const res = await axios.put(`${API_URL}/${id}`, data);
-    return res.data;
+export const updateProofContent = createAsyncThunk(
+  "proof/updateContent",
+  async ({ type, content, user }, { rejectWithValue }) => {
+    try {
+      const response = await axios.put(
+        `${API_URL}/proof/${type}`,
+        { content, user },
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(
+        error.response?.data || "Failed to update proof content"
+      );
+    }
   }
 );
 
-export const deleteProofType = createAsyncThunk(
-  "proofTypes/delete",
-  async (id) => {
-    await axios.delete(`${API_URL}/${id}`);
-    return id;
-  }
-);
+const initialState = {
+  proofs: [],
+  currentProof: null,
+  loading: false,
+  error: null,
+  success: false,
+  message: "",
+};
 
-const proofTypesSlice = createSlice({
-  name: "proofTypes",
-  initialState: {
-    list: [],
-    loading: false,
-    error: null,
+const proofSlice = createSlice({
+  name: "proof",
+  initialState,
+  reducers: {
+    clearError: (state) => {
+      state.error = null;
+    },
+    clearSuccess: (state) => {
+      state.success = false;
+      state.message = "";
+    },
+    resetState: () => initialState,
   },
-  reducers: {},
   extraReducers: (builder) => {
     builder
-      .addCase(fetchProofTypes.pending, (state) => {
+      // Fetch all proofs
+      .addCase(fetchAllProofs.pending, (state) => {
         state.loading = true;
+        state.error = null;
       })
-      .addCase(fetchProofTypes.fulfilled, (state, action) => {
+      .addCase(fetchAllProofs.fulfilled, (state, action) => {
         state.loading = false;
-        state.list = action.payload;
+        state.proofs = action.payload;
       })
-      .addCase(fetchProofTypes.rejected, (state, action) => {
+      .addCase(fetchAllProofs.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.error.message;
+        state.error = action.payload;
       })
-      .addCase(createProofType.fulfilled, (state, action) => {
-        state.list.push(action.payload);
+
+      // Fetch proof by type
+      .addCase(fetchProofByType.pending, (state) => {
+        state.loading = true;
+        state.error = null;
       })
-      .addCase(updateProofType.fulfilled, (state, action) => {
-        const index = state.list.findIndex(
-          (item) => item._id === action.payload._id
+      .addCase(fetchProofByType.fulfilled, (state, action) => {
+        state.loading = false;
+        state.currentProof = action.payload;
+      })
+      .addCase(fetchProofByType.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+
+      // Update proof content
+      .addCase(updateProofContent.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(updateProofContent.fulfilled, (state, action) => {
+        state.loading = false;
+        state.success = true;
+        state.message = "Proof content updated successfully";
+        state.currentProof = action.payload.proof;
+
+        // Update the proof in the proofs array as well
+        state.proofs = state.proofs.map((proof) =>
+          proof.type === action.payload.proof.type
+            ? action.payload.proof
+            : proof
         );
-        if (index !== -1) state.list[index] = action.payload;
       })
-      .addCase(deleteProofType.fulfilled, (state, action) => {
-        state.list = state.list.filter((item) => item._id !== action.payload);
+      .addCase(updateProofContent.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+        state.success = false;
       });
   },
 });
 
-export default proofTypesSlice.reducer;
+export const { clearError, clearSuccess, resetState } = proofSlice.actions;
+export default proofSlice.reducer;
