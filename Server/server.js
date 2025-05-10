@@ -22,8 +22,10 @@ app.use('/uploads', express.static('uploads'));
 app.use(express.json());
 
 app.use('/user', userRouter);
+
 app.use('/whitelabel', whitelabelRouter);
-app.use('/prooftype', prooftypeRouter); // Fixed typo from /proofetype
+
+app.use('/prooftype', prooftypeRouter);
 
 const PORT = 2030;
 
