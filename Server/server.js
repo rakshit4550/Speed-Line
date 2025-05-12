@@ -5,6 +5,7 @@ import userRouter from './routes/user.js';
 import whitelabelRouter from './routes/whiteLabel.js';
 import prooftypeRouter from './routes/prooftype.js';
 import { initializeProofs } from './controllers/prooftype.js';
+import sportsRouter from './routes/sports.js';
 
 const app = express();
 
@@ -26,6 +27,8 @@ app.use('/user', userRouter);
 app.use('/whitelabel', whitelabelRouter);
 
 app.use('/prooftype', prooftypeRouter);
+
+app.use('/sports', sportsRouter);
 
 const PORT = 2030;
 

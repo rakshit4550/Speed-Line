@@ -42,9 +42,9 @@ function AdminHome() {
         >
           PROOF TYPE
         </Link>
-        <div className="bg-white  border shadow-xl p-[30px]  text-black  box rounded-lg  font-bold text-[35px] cursor-pointer ">
+        <Link to="/sports" className="bg-white  border shadow-xl p-[30px]  text-black  box rounded-lg  font-bold text-[35px] cursor-pointer ">
           SPORT NAME
-        </div>
+        </Link>
         <div className="bg-white  border shadow-xl p-[30px]  text-black  box rounded-lg  font-bold text-[35px] cursor-pointer">
           ADD MARKET
         </div>

@@ -4,6 +4,7 @@ import Login from "./pages/user/Login";
 import AdminHome from "./pages/admin/AdminHome";
 import Whitelabel from "./pages/admin/Whitelabel";
 import ProofManagement from "./pages/admin/Markettype";
+import SportsManagement from "./pages/admin/SportsManagement";
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
         <Route path="/adminhome" element={<AdminHome />} />
         <Route path="/whitelabel" element={<Whitelabel />} />
         <Route path="/proofs" element={<ProofManagement />} />
+        <Route path="/sports" element={<SportsManagement />} />
         {/* user Routes */}
         <Route path="/" element={<Login />} />
       </Routes>
