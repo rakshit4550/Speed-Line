@@ -1,11 +1,11 @@
-import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import axios from 'axios';
+import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
+import axios from "axios";
 
-const API_BASE_URL = 'http://localhost:2030/prooftype';
+const API_BASE_URL = "http://localhost:2030/prooftype";
 
 // Fetch all proofs for a user
 export const fetchAllProofs = createAsyncThunk(
-  'proof/fetchAllProofs',
+  "proof/fetchAllProofs",
   async (user, { rejectWithValue }) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/proofs`, {
@@ -13,57 +13,70 @@ export const fetchAllProofs = createAsyncThunk(
       });
       return response.data;
     } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to fetch proofs');
+      return rejectWithValue(
+        error.response?.data?.message || "Failed to fetch proofs"
+      );
     }
   }
 );
 
 // Fetch proof by type
 export const fetchProofByType = createAsyncThunk(
-  'proof/fetchProofByType',
+  "proof/fetchProofByType",
   async ({ type, user }, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/proof/${encodeURIComponent(type)}`, {
-        params: { user },
-      });
+      const response = await axios.get(
+        `${API_BASE_URL}/proof/${encodeURIComponent(type)}`,
+        {
+          params: { user },
+        }
+      );
       return response.data;
     } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to fetch proof');
+      return rejectWithValue(
+        error.response?.data?.message || "Failed to fetch proof"
+      );
     }
   }
 );
 
 // Update proof notes
 export const updateProofContent = createAsyncThunk(
-  'proof/updateProofContent',
+  "proof/updateProofContent",
   async ({ type, notes, user }, { rejectWithValue }) => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/proof/${encodeURIComponent(type)}`, {
-        notes,
-      }, {
-        params: { user },
-      });
+      const response = await axios.put(
+        `${API_BASE_URL}/proof/${encodeURIComponent(type)}`,
+        {
+          notes,
+        },
+        {
+          params: { user },
+        }
+      );
       return response.data;
     } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to update proof');
+      return rejectWithValue(
+        error.response?.data?.message || "Failed to update proof"
+      );
     }
   }
 );
 
 const proofSlice = createSlice({
-  name: 'proof',
+  name: "proof",
   initialState: {
     proofs: [],
     currentProof: null,
     loading: false,
     error: null,
     success: false,
-    message: '',
+    message: "",
   },
   reducers: {
     clearSuccess: (state) => {
       state.success = false;
-      state.message = '';
+      state.message = "";
     },
     clearError: (state) => {
       state.error = null;
@@ -113,7 +126,9 @@ const proofSlice = createSlice({
         state.message = action.payload.message;
         state.currentProof = action.payload.proof;
         state.proofs = state.proofs.map((proof) =>
-          proof.type === action.payload.proof.type ? action.payload.proof : proof
+          proof.type === action.payload.proof.type
+            ? action.payload.proof
+            : proof
         );
       })
       .addCase(updateProofContent.rejected, (state, action) => {
