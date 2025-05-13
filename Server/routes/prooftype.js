@@ -1,20 +1,24 @@
-// import express from 'express';
-// import { getProofByType, getAllProofs, updateProofContent, initializeProofs, } from '../controllers/prooftype.js';
+// import express from "express";
+// import {
+//   getProofByType,
+//   getAllProofs,
+//   updateProofContent,
+//   initializeProofs,
+//   deleteProof,
+// } from "../controllers/prooftype.js";
 
 // const router = express.Router();
 
-// router.get('/proof/:type', getProofByType);
-
-// router.get('/proofs', getAllProofs);
-
-// router.put('/proof/:type', updateProofContent);
-
-// router.post('/initialize', async (req, res) => {
+// router.get("/proof/:type", getProofByType);
+// router.get("/proofs", getAllProofs);
+// router.put("/proof/:type", updateProofContent);
+// router.delete("/proof/:type", deleteProof);
+// router.post("/initialize", async (req, res) => {
 //   try {
 //     await initializeProofs();
-//     res.status(200).json({ message: 'Proofs initialized successfully' });
+//     res.status(200).json({ message: "Proofs initialized successfully" });
 //   } catch (error) {
-//     res.status(500).json({ message: 'Failed to initialize proofs', error });
+//     res.status(500).json({ message: "Failed to initialize proofs", error });
 //   }
 // });
 
@@ -40,7 +44,9 @@ router.post("/initialize", async (req, res) => {
     await initializeProofs();
     res.status(200).json({ message: "Proofs initialized successfully" });
   } catch (error) {
-    res.status(500).json({ message: "Failed to initialize proofs", error });
+    res
+      .status(500)
+      .json({ message: "Failed to initialize proofs", error: error.message });
   }
 });
 
