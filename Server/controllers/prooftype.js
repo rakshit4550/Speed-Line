@@ -1,4 +1,4 @@
-import Proof from '../models/proof.js';
+import Proof from '../models/Proof.js';
 
 // Create a new proof
 export const createProof = async (req, res) => {
