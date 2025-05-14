@@ -4,8 +4,8 @@ import cors from 'cors';
 import userRouter from './routes/user.js';
 import whitelabelRouter from './routes/whiteLabel.js';
 import prooftypeRouter from './routes/prooftype.js';
-import { initializeProofs } from './controllers/prooftype.js';
 import sportsRouter from './routes/sports.js';
+import marketRouter from './routes/market.js';
 
 const app = express();
 
@@ -30,6 +30,8 @@ app.use('/prooftype', prooftypeRouter);
 
 app.use('/sports', sportsRouter);
 
+app.use('/market', marketRouter);
+
 const PORT = 2030;
 
 mongoose
@@ -37,7 +39,6 @@ mongoose
   .then(() => {
     console.log('MongoDB Connected Successfully...!');
     app.listen(PORT, async () => {
-      await initializeProofs();
       console.log(`Server running on port ${PORT}`);
     });
   })

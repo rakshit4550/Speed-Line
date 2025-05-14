@@ -45,9 +45,11 @@ function AdminHome() {
         <Link to="/sports" className="bg-white  border shadow-xl p-[30px]  text-black  box rounded-lg  font-bold text-[35px] cursor-pointer ">
           SPORT NAME
         </Link>
-        <div className="bg-white  border shadow-xl p-[30px]  text-black  box rounded-lg  font-bold text-[35px] cursor-pointer">
+        <Link 
+        to="/market"
+        className="bg-white  border shadow-xl p-[30px]  text-black  box rounded-lg  font-bold text-[35px] cursor-pointer">
           ADD MARKET
-        </div>
+        </Link>
         <div className="bg-white  border shadow-xl p-[30px]  text-black  box rounded-lg  font-bold text-[35px] cursor-pointer">
           ADD MEMBER
         </div>

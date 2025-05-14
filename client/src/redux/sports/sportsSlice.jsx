@@ -1,56 +1,54 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import axios from "axios";
 
-const API_BASE_URL = "http://localhost:2030/sports";
+const API_URL = "http://localhost:2030/sports";
 
-// Fetch all sports
-export const fetchAllSports = createAsyncThunk(
-  "sports/fetchAllSports",
-  async (user, { rejectWithValue }) => {
+// Async thunks for CRUD operations
+export const fetchSports = createAsyncThunk("sports/fetchSports", async () => {
+  const response = await axios.get(API_URL);
+  return response.data.data;
+});
+
+export const fetchSportById = createAsyncThunk(
+  "sports/fetchSportById",
+  async (id) => {
+    const response = await axios.get(`${API_URL}/${id}`);
+    return response.data.data;
+  }
+);
+
+export const createSport = createAsyncThunk(
+  "sports/createSport",
+  async (sportData, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}?user=${user}`);
-      return response.data.sports;
+      const response = await axios.post(API_URL, sportData);
+      return response.data.data;
     } catch (error) {
-      return rejectWithValue(error.response?.data?.message || "Failed to fetch sports");
+      return rejectWithValue(error.response.data);
     }
   }
 );
 
-// Create sports
-export const createSports = createAsyncThunk(
-  "sports/createSports",
-  async ({ sportsName, user }, { rejectWithValue }) => {
+export const updateSport = createAsyncThunk(
+  "sports/updateSport",
+  async ({ id, sportData }, { rejectWithValue }) => {
     try {
-      const response = await axios.post(API_BASE_URL, { sportsName, user });
-      return response.data.sports;
+      const response = await axios.put(`${API_URL}/${id}`, sportData);
+      return response.data.data;
     } catch (error) {
-      return rejectWithValue(error.response?.data?.message || "Failed to create sports");
+      return rejectWithValue(error.response.data);
     }
   }
 );
 
-// Update sports
-export const updateSports = createAsyncThunk(
-  "sports/updateSports",
-  async ({ id, sportsName, user }, { rejectWithValue }) => {
-    try {
-      const response = await axios.put(`${API_BASE_URL}/${id}`, { sportsName, user });
-      return response.data.sports;
-    } catch (error) {
-      return rejectWithValue(error.response?.data?.message || "Failed to update sports");
-    }
-  }
-);
-
-// Delete sports
-export const deleteSports = createAsyncThunk(
-  "sports/deleteSports",
+export const deleteSport = createAsyncThunk(
+  "sports/deleteSport",
   async (id, { rejectWithValue }) => {
     try {
-      await axios.delete(`${API_BASE_URL}/${id}`);
+      await axios.delete(`${API_URL}/${id}`);
       return id;
     } catch (error) {
-      return rejectWithValue(error.response?.data?.message || "Failed to delete sports");
+      return rejectWithValue(error.response.data);
     }
   }
 );
@@ -59,74 +57,93 @@ const sportsSlice = createSlice({
   name: "sports",
   initialState: {
     sports: [],
+    selectedSport: null,
     loading: false,
     error: null,
-    message: "",
   },
   reducers: {
-    clearMessage: (state) => {
-      state.message = "";
+    clearError: (state) => {
       state.error = null;
+    },
+    clearSelectedSport: (state) => {
+      state.selectedSport = null;
     },
   },
   extraReducers: (builder) => {
+    // Fetch all sports
     builder
-      .addCase(fetchAllSports.pending, (state) => {
+      .addCase(fetchSports.pending, (state) => {
         state.loading = true;
-        state.error = null;
       })
-      .addCase(fetchAllSports.fulfilled, (state, action) => {
+      .addCase(fetchSports.fulfilled, (state, action) => {
         state.loading = false;
         state.sports = action.payload;
-        state.message = "Sports retrieved successfully";
       })
-      .addCase(fetchAllSports.rejected, (state, action) => {
+      .addCase(fetchSports.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.payload;
-      })
-      .addCase(createSports.pending, (state) => {
+        state.error = action.error.message;
+      });
+
+    // Fetch sport by ID
+    builder
+      .addCase(fetchSportById.pending, (state) => {
         state.loading = true;
-        state.error = null;
       })
-      .addCase(createSports.fulfilled, (state, action) => {
+      .addCase(fetchSportById.fulfilled, (state, action) => {
+        state.loading = false;
+        state.selectedSport = action.payload;
+      })
+      .addCase(fetchSportById.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message;
+      });
+
+    // Create sport
+    builder
+      .addCase(createSport.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(createSport.fulfilled, (state, action) => {
         state.loading = false;
         state.sports.push(action.payload);
-        state.message = "Sports created successfully";
       })
-      .addCase(createSports.rejected, (state, action) => {
+      .addCase(createSport.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.payload;
-      })
-      .addCase(updateSports.pending, (state) => {
+        state.error = action.payload?.message || "Failed to create sport";
+      });
+
+    // Update sport
+    builder
+      .addCase(updateSport.pending, (state) => {
         state.loading = true;
-        state.error = null;
       })
-      .addCase(updateSports.fulfilled, (state, action) => {
+      .addCase(updateSport.fulfilled, (state, action) => {
         state.loading = false;
         state.sports = state.sports.map((sport) =>
           sport._id === action.payload._id ? action.payload : sport
         );
-        state.message = "Sports updated successfully";
+        state.selectedSport = action.payload;
       })
-      .addCase(updateSports.rejected, (state, action) => {
+      .addCase(updateSport.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.payload;
-      })
-      .addCase(deleteSports.pending, (state) => {
+        state.error = action.payload?.message || "Failed to update sport";
+      });
+
+    // Delete sport
+    builder
+      .addCase(deleteSport.pending, (state) => {
         state.loading = true;
-        state.error = null;
       })
-      .addCase(deleteSports.fulfilled, (state, action) => {
+      .addCase(deleteSport.fulfilled, (state, action) => {
         state.loading = false;
         state.sports = state.sports.filter((sport) => sport._id !== action.payload);
-        state.message = "Sports deleted successfully";
       })
-      .addCase(deleteSports.rejected, (state, action) => {
+      .addCase(deleteSport.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.payload;
+        state.error = action.payload?.message || "Failed to delete sport";
       });
   },
 });
 
-export const { clearMessage } = sportsSlice.actions;
+export const { clearError, clearSelectedSport } = sportsSlice.actions;
 export default sportsSlice.reducer;
