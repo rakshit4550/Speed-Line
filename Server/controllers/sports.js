@@ -1,106 +1,216 @@
-import Sports from "../models/Sports.js";
-import { whitelabel } from "../models/WhiteLabel.js";
+// import Sports from "../models/Sports.js"; // Adjust path to your model file
 
-// Create a new sports entry
-export const createSports = async (req, res) => {
+// // Create a new sport
+// export const createSport = async (req, res) => {
+//   try {
+//     const { sportsName } = req.body;
+    
+//     if (!sportsName) {
+//       return res.status(400).json({ message: "Sports name is required" });
+//     }
+
+//     // Check if sport already exists (case-insensitive)
+//     const existingSport = await Sports.findOne({
+//       sportsName: { $regex: new RegExp(`^${sportsName}$`, "i") },
+//     });
+    
+//     if (existingSport) {
+//       return res.status(409).json({ message: "Sport already exists" });
+//     }
+
+//     const newSport = await Sports.create({ sportsName });
+//     res.status(201).json({
+//       message: "Sport created successfully",
+//       data: newSport,
+//     });
+//   } catch (error) {
+//     res.status(500).json({ message: "Server error", error: error.message });
+//   }
+// };
+
+// // Get all sports
+// export const getAllSports = async (req, res) => {
+//   try {
+//     const sports = await Sports.find().sort({ createdAt: -1 });
+//     res.status(200).json({
+//       message: "Sports retrieved successfully",
+//       data: sports,
+//     });
+//   } catch (error) {
+//     res.status(500).json({ message: "Server error", error: error.message });
+//   }
+// };
+
+// // Get single sport by ID
+// export const getSportById = async (req, res) => {
+//   try {
+//     const sport = await Sports.findById(req.params.id);
+    
+//     if (!sport) {
+//       return res.status(404).json({ message: "Sport not found" });
+//     }
+    
+//     res.status(200).json({
+//       message: "Sport retrieved successfully",
+//       data: sport,
+//     });
+//   } catch (error) {
+//     res.status(500).json({ message: "Server error", error: error.message });
+//   }
+// };
+
+// // Update a sport
+// export const updateSport = async (req, res) => {
+//   try {
+//     const { sportsName } = req.body;
+//     const sport = await Sports.findById(req.params.id);
+    
+//     if (!sport) {
+//       return res.status(404).json({ message: "Sport not found" });
+//     }
+    
+
+//     if (sportsName) sport.sportsName = sportsName;
+    
+//     const updatedSport = await sport.save();
+//     res.status(200).json({
+//       message: "Sport updated successfully",
+//       data: updatedSport,
+//     });
+//   } catch (error) {
+//     res.status(500).json({ message: "Server error", error: error.message });
+//   }
+// };
+
+// // Delete a sport
+// export const deleteSport = async (req, res) => {
+//   try {
+//     const sport = await Sports.findById(req.params.id);
+    
+//     if (!sport) {
+//       return res.status(404).json({ message: "Sport not found" });
+//     }
+    
+//     await Sports.deleteOne({ _id: req.params.id });
+//     res.status(200).json({ message: "Sport deleted successfully" });
+//   } catch (error) {
+//     res.status(500).json({ message: "Server error", error: error.message });
+//   }
+// };
+
+import Sports from "../models/Sports.js"; // Adjust path to your model file
+
+// Create a new sport
+export const createSport = async (req, res) => {
   try {
-    const { sportsName, user } = req.body;
-
-    if (!sportsName || !user) {
-      return res.status(400).json({ message: "Sports name and user are required" });
+    const { sportsName } = req.body;
+    
+    if (!sportsName) {
+      return res.status(400).json({ message: "Sports name is required" });
     }
 
-    // Additional validation for user existence (optional, since model validates)
-    const userExists = await whitelabel.findOne({ user });
-    if (!userExists) {
-      return res.status(400).json({ message: `User ${user} does not exist in whitelabel collection` });
+    // Check if sport already exists (case-insensitive)
+    const existingSport = await Sports.findOne({
+      sportsName: { $regex: new RegExp(`^${sportsName}$`, "i") },
+    });
+    
+    if (existingSport) {
+      return res.status(409).json({ message: "Sport with this name already exists" });
     }
 
-    const sports = await Sports.create({ sportsName, user });
-    res.status(201).json({ message: "Sports created successfully", sports });
+    const newSport = await Sports.create({ sportsName });
+    res.status(201).json({
+      message: "Sport created successfully",
+      data: newSport,
+    });
   } catch (error) {
-    console.error("Error in createSports:", error);
+    console.error('Error creating sport:', error); // Log for debugging
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-// Get all sports entries
+// Get all sports
 export const getAllSports = async (req, res) => {
   try {
-    const { user } = req.query;
-    let query = {};
-    if (user) {
-      query.user = user;
-      const userExists = await whitelabel.findOne({ user });
-      if (!userExists) {
-        return res.status(400).json({ message: `User ${user} does not exist in whitelabel collection` });
+    const sports = await Sports.find().sort({ createdAt: -1 });
+    res.status(200).json({
+      message: "Sports retrieved successfully",
+      data: sports,
+    });
+  } catch (error) {
+    console.error('Error retrieving sports:', error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Get single sport by ID
+export const getSportById = async (req, res) => {
+  try {
+    const sport = await Sports.findById(req.params.id);
+    
+    if (!sport) {
+      return res.status(404).json({ message: "Sport not found" });
+    }
+    
+    res.status(200).json({
+      message: "Sport retrieved successfully",
+      data: sport,
+    });
+  } catch (error) {
+    console.error('Error retrieving sport:', error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Update a sport
+export const updateSport = async (req, res) => {
+  try {
+    const { sportsName } = req.body;
+    const sportId = req.params.id;
+
+    // Find the sport to update
+    const sport = await Sports.findById(sportId);
+    
+    if (!sport) {
+      return res.status(404).json({ message: "Sport not found" });
+    }
+
+    // If sportsName is provided, check for duplicates (excluding current sport)
+    if (sportsName) {
+      const existingSport = await Sports.findOne({
+        sportsName: { $regex: new RegExp(`^${sportsName}$`, "i") },
+        _id: { $ne: sportId }, // Exclude the current sport
+      });
+      if (existingSport) {
+        return res.status(409).json({ message: "Sport with this name already exists" });
       }
+      sport.sportsName = sportsName.trim();
     }
-
-    const sports = await Sports.find(query);
-    res.json({ message: "Sports retrieved successfully", sports });
+    
+    const updatedSport = await sport.save();
+    res.status(200).json({
+      message: "Sport updated successfully",
+      data: updatedSport,
+    });
   } catch (error) {
-    console.error("Error in getAllSports:", error);
+    console.error('Error updating sport:', error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-// Get a single sports entry by ID
-export const getSportsById = async (req, res) => {
+// Delete a sport
+export const deleteSport = async (req, res) => {
   try {
-    const sports = await Sports.findById(req.params.id);
-    if (!sports) {
-      return res.status(404).json({ message: "Sports entry not found" });
+    const sport = await Sports.findById(req.params.id);
+    
+    if (!sport) {
+      return res.status(404).json({ message: "Sport not found" });
     }
-    res.json({ message: "Sports retrieved successfully", sports });
+    
+    await Sports.deleteOne({ _id: req.params.id });
+    res.status(200).json({ message: "Sport deleted successfully" });
   } catch (error) {
-    console.error("Error in getSportsById:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
-  }
-};
-
-// Update a sports entry
-export const updateSports = async (req, res) => {
-  try {
-    const { sportsName, user } = req.body;
-
-    if (!sportsName || !user) {
-      return res.status(400).json({ message: "Sports name and user are required" });
-    }
-
-    // Validate user existence
-    const userExists = await whitelabel.findOne({ user });
-    if (!userExists) {
-      return res.status(400).json({ message: `User ${user} does not exist in whitelabel collection` });
-    }
-
-    const sports = await Sports.findByIdAndUpdate(
-      req.params.id,
-      { sportsName, user },
-      { new: true, runValidators: true }
-    );
-
-    if (!sports) {
-      return res.status(404).json({ message: "Sports entry not found" });
-    }
-
-    res.json({ message: "Sports updated successfully", sports });
-  } catch (error) {
-    console.error("Error in updateSports:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
-  }
-};
-
-// Delete a sports entry
-export const deleteSports = async (req, res) => {
-  try {
-    const sports = await Sports.findByIdAndDelete(req.params.id);
-    if (!sports) {
-      return res.status(404).json({ message: "Sports entry not found" });
-    }
-    res.json({ message: "Sports deleted successfully" });
-  } catch (error) {
-    console.error("Error in deleteSports:", error);
+    console.error('Error deleting sport:', error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };

@@ -1,22 +1,18 @@
 import express from "express";
 import {
-  createSports,
   getAllSports,
-  getSportsById,
-  updateSports,
-  deleteSports,
+  createSport,
+  updateSport,
+  deleteSport,
+  getSportById,
 } from "../controllers/sports.js";
 
 const router = express.Router();
 
-router.post("/", createSports);
-
+router.post("/", createSport);
 router.get("/", getAllSports);
-
-router.get("/:id", getSportsById);
-
-router.put("/:id", updateSports);
-
-router.delete("/:id", deleteSports);
+router.get("/:id", getSportById);
+router.put("/:id", updateSport);
+router.delete("/:id", deleteSport);
 
 export default router;
