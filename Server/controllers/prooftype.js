@@ -4,20 +4,31 @@ import Proof from '../models/Proof.js';
 export const createProof = async (req, res) => {
   try {
     const { type, content } = req.body;
-    
+
+    // Validate required fields
     if (!type || !content) {
       return res.status(400).json({ message: 'Type and content are required' });
     }
 
-    const proof = new Proof({ type, content });
+    // Normalize type for case-insensitive comparison
+    const normalizedType = type.trim().toLowerCase();
+
+    // Check for existing proof with the same type (case-insensitive)
+    const existingProof = await Proof.findOne({ type: { $regex: `^${normalizedType}$`, $options: 'i' } });
+    if (existingProof) {
+      return res.status(400).json({ message: 'Proof with this type already exists' });
+    }
+
+    // Create and save new proof
+    const proof = new Proof({ type: type.trim(), content: content.trim() });
     await proof.save();
-    
+
     res.status(201).json({ message: 'Proof created successfully', proof });
   } catch (error) {
+    console.error('Error creating proof:', error); // Log error for debugging
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-
 // Get all proofs
 export const getAllProofs = async (req, res) => {
   try {

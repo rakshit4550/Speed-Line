@@ -171,6 +171,7 @@ import {
   clearError,
   clearSelectedSport,
 } from "../../redux/sports/sportsSlice";
+import Header from "../../components/admin/Header";
 
 // Constants
 const API_BASE_URL = "http://localhost:2030";
@@ -272,9 +273,11 @@ const SportsManager = () => {
   );
 
   return (
+    <>
+    <Header/>
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Sports Management</h1>
+        <h1 className="text-2xl font-bold">Add Sports</h1>
         <button
           onClick={() => setOpen(true)}
           className="bg-[#00008B] text-white cursor-pointer p-[10px] px-[20px] rounded-2xl text-[16px] font-bold flex justify-center items-center"
@@ -302,13 +305,16 @@ const SportsManager = () => {
 
       {/* Sports List */}
       {!loading && (
-        <div className="bg-white shadow-md rounded-lg overflow-hidden">
+        <div className="bg-white shadow-md rounded-lg  overflow-hidden">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Sport Name
                 </th>
+                  <th className="px-6 flex  justify-end mr-[40px] py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -316,7 +322,7 @@ const SportsManager = () => {
                 sports.map((sport) => (
                   <tr key={sport._id}>
                     <td className="px-6 py-4 whitespace-nowrap">{sport.sportsName}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex">
+                    <td className="px-6 py-4 flex justify-end mr-[30px]  whitespace-nowrap text-sm font-medium flex">
                       <button
                         onClick={() => handlePreview(sport._id)}
                         className="text-blue-600 hover:text-blue-900 mr-4"
@@ -453,6 +459,7 @@ const SportsManager = () => {
         </div>
       )}
     </div>
+    </>
   );
 };
 

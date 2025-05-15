@@ -9,7 +9,7 @@ export const store = configureStore({
     whitelabel: whitelabelReducer,
     sports: sportsReducer,
     proof: proofTypeReducer,
-    markets : marketReducer
+    market : marketReducer
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

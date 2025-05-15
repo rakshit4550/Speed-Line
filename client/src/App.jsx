@@ -6,7 +6,7 @@ import Whitelabel from "./pages/admin/Whitelabel";
 
 import SportsManagement from "./pages/admin/SportsManagement";
 import ProofType from "./pages/admin/ProofType";
-import { MarketList } from "./pages/admin/market";
+import MarketManager from "./pages/admin/market";
 
 function App() {
   return (
@@ -18,7 +18,7 @@ function App() {
         <Route path="/whitelabel" element={<Whitelabel />} />
         <Route path="/proofs" element={<ProofType/>} />
         <Route path="/sports" element={<SportsManagement />} />
-        <Route path="/market" element={<MarketList />} />
+        <Route path="/market" element={<MarketManager />} />
        
         {/* user Routes */}
         <Route path="/" element={<Login />} />

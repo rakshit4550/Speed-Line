@@ -1,14 +1,18 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
 
-const sportsSchema = new mongoose.Schema(
-  {
-    sportsName: {
-      type: String,
-      required: [true, "Sports name is required"],
-      trim: true,
-    },
+const sportsSchema = new mongoose.Schema({
+  sportsName: {
+    type: String,
+    required: true,
+    unique: true, // Enforce uniqueness at the database level
+    trim: true,
   },
-  { timestamps: true } // Adds createdAt and updatedAt fields
+},
 );
 
-export default mongoose.model("Sports", sportsSchema);
+// Ensure unique index is case-insensitive
+sportsSchema.index({ sportsName: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
+
+const Sports = mongoose.model('Sports', sportsSchema);
+
+export default Sports;

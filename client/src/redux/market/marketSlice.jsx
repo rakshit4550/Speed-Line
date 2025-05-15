@@ -1,67 +1,216 @@
-import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 
+// API Service
 const API_URL = 'http://localhost:2030/market';
 
-// Fetch all markets
-export const fetchMarkets = createAsyncThunk('markets/fetchMarkets', async () => {
-  const response = await axios.get(`${API_URL}/all`);
-  return response.data.data;
-});
+const createMarketApi = async (marketData) => {
+  const response = await axios.post(`${API_URL}/add`, marketData, {
+    withCredentials: true,
+  });
+  return response.data;
+};
 
-// Add a new market
-export const addMarket = createAsyncThunk('markets/addMarket', async (marketName) => {
-  const response = await axios.post(`${API_URL}/add`, { marketName });
-  return response.data.data;
-});
+const getAllMarketsApi = async () => {
+  const response = await axios.get(`${API_URL}/all`, {
+    withCredentials: true,
+  });
+  return response.data;
+};
 
-// Update a market
-export const updateMarket = createAsyncThunk('markets/updateMarket', async ({ id, marketName }) => {
-  const response = await axios.put(`${API_URL}/${id}`, { marketName });
-  return response.data.data;
-});
+const getMarketByIdApi = async (id) => {
+  const response = await axios.get(`${API_URL}/${id}`, {
+    withCredentials: true,
+  });
+  return response.data;
+};
 
-// Delete a market
-export const deleteMarket = createAsyncThunk('markets/deleteMarket', async (id) => {
-  await axios.delete(`${API_URL}/${id}`);
-  return id;
-});
+const updateMarketApi = async (id, marketData) => {
+  const response = await axios.put(`${API_URL}/${id}`, marketData, {
+    withCredentials: true,
+  });
+  return response.data;
+};
+
+const deleteMarketApi = async (id) => {
+  const response = await axios.delete(`${API_URL}/${id}`, {
+    withCredentials: true,
+  });
+  return response.data;
+};
+
+// Async Thunks
+export const createMarket = createAsyncThunk(
+  'market/createMarket',
+  async (marketData, { rejectWithValue }) => {
+    try {
+      const response = await createMarketApi(marketData);
+      if (!response.success) {
+        return rejectWithValue(response);
+      }
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+export const getAllMarkets = createAsyncThunk(
+  'market/getAllMarkets',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await getAllMarketsApi();
+      if (!response.success) {
+        return rejectWithValue(response);
+      }
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+export const getMarketById = createAsyncThunk(
+  'market/getMarketById',
+  async (id, { rejectWithValue }) => {
+    try {
+      const response = await getMarketByIdApi(id);
+      if (!response.success) {
+        return rejectWithValue(response);
+      }
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+export const updateMarket = createAsyncThunk(
+  'market/updateMarket',
+  async ({ id, marketData }, { rejectWithValue }) => {
+    try {
+      const response = await updateMarketApi(id, marketData);
+      if (!response.success) {
+        return rejectWithValue(response);
+      }
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+export const deleteMarket = createAsyncThunk(
+  'market/deleteMarket',
+  async (id, { rejectWithValue }) => {
+    try {
+      const response = await deleteMarketApi(id);
+      if (!response.success) {
+        return rejectWithValue(response);
+      }
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+// Redux Slice
+const initialState = {
+  markets: [],
+  selectedMarket: null,
+  loading: false,
+  error: null,
+  successMessage: null,
+};
 
 const marketSlice = createSlice({
-  name: 'markets',
-  initialState: {
-    markets: [],
-    loading: false,
-    error: null,
+  name: 'market',
+  initialState,
+  reducers: {
+    clearMessages: (state) => {
+      state.error = null;
+      state.successMessage = null;
+    },
   },
-  reducers: {},
   extraReducers: (builder) => {
     builder
-      .addCase(fetchMarkets.pending, (state) => {
+      // Create Market
+      .addCase(createMarket.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.successMessage = null;
+      })
+      .addCase(createMarket.fulfilled, (state, action) => {
+        state.loading = false;
+        state.markets.push(action.payload.data);
+        state.successMessage = action.payload.message;
+      })
+      .addCase(createMarket.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload.message;
+      })
+      // Get All Markets
+      .addCase(getAllMarkets.pending, (state) => {
         state.loading = true;
         state.error = null;
       })
-      .addCase(fetchMarkets.fulfilled, (state, action) => {
+      .addCase(getAllMarkets.fulfilled, (state, action) => {
         state.loading = false;
-        state.markets = action.payload;
+        state.markets = action.payload.data;
       })
-      .addCase(fetchMarkets.rejected, (state, action) => {
+      .addCase(getAllMarkets.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.error.message;
+        state.error = action.payload.message;
       })
-      .addCase(addMarket.fulfilled, (state, action) => {
-        state.markets.push(action.payload);
+      // Get Market By ID
+      .addCase(getMarketById.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(getMarketById.fulfilled, (state, action) => {
+        state.loading = false;
+        state.selectedMarket = action.payload.data;
+      })
+      .addCase(getMarketById.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload.message;
+      })
+      // Update Market
+      .addCase(updateMarket.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.successMessage = null;
       })
       .addCase(updateMarket.fulfilled, (state, action) => {
-        const index = state.markets.findIndex(m => m._id === action.payload._id);
-        if (index !== -1) {
-          state.markets[index] = action.payload;
-        }
+        state.loading = false;
+        state.markets = state.markets.map((market) =>
+          market._id === action.payload.data._id ? action.payload.data : market
+        );
+        state.selectedMarket = null;
+        state.successMessage = action.payload.message;
+      })
+      .addCase(updateMarket.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload.message;
+      })
+      // Delete Market
+      .addCase(deleteMarket.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.successMessage = null;
       })
       .addCase(deleteMarket.fulfilled, (state, action) => {
-        state.markets = state.markets.filter(m => m._id !== action.payload);
+        state.loading = false;
+        state.markets = state.markets.filter((market) => market._id !== action.meta.arg);
+        state.successMessage = action.payload.message;
+      })
+      .addCase(deleteMarket.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload.message;
       });
   },
 });
 
+export const { clearMessages } = marketSlice.actions;
 export default marketSlice.reducer;

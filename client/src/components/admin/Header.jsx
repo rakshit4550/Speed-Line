@@ -24,19 +24,19 @@ const Header = () => {
   return (
     <>
       {/* heder */}
-      <div className="!w-full bg-[#00008B] flex justify-between  sm:h-[90px] relative">
+      <div className="!w-full bg-[#00008B] flex justify-between h-[70px] relative">
         <span className="text-white text-[25px] p-[10px] font-bold mt-2">
-          HELOO TURBOMAIN ADMIN
+          Hello! Admin &#128075;
         </span>
-        <div className="relative" ref={menuRef}>
+        <div className=" relative" ref={menuRef}>
           <span
-            className="text-white font-bold my-[25px] border flex flex-col justify-center mr-4 rounded-full cursor-pointer"
+            className= " fixed right-0 text-white font-bold my-[25px]  flex flex-col justify-center mr-4 rounded-full cursor-pointer"
             onClick={() => setIsMenuOpen(!isMenuOpen)}
           >
-            <FaUser className="m-2 text-[20px]" />
+            <FaUser className="m-2  text-[20px]" />
           </span>
           {isMenuOpen && (
-            <div className=" right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10">
+            <div className="  mt-[80px] w-48 bg-white rounded-md shadow-lg z-10">
               <ul className="py-1">
                 <li
                   className="px-4 py-2 text-gray-800 hover:bg-gray-200 cursor-pointer"
@@ -46,6 +46,7 @@ const Header = () => {
                 </li>
               </ul>
             </div>
+        
           )}
         </div>
       </div>
