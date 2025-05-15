@@ -10,9 +10,9 @@ const sportsSchema = new mongoose.Schema({
 },
 );
 
-// Ensure unique index is case-insensitive
-sportsSchema.index({ sportsName: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
 
 const Sports = mongoose.model('Sports', sportsSchema);
 
 export default Sports;
+
+
