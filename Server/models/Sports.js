@@ -39,4 +39,6 @@ const sportsSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-export default mongoose.model("Sports", sportsSchema);
+const Sports = mongoose.model('Sports', sportsSchema);
+
+export default Sports;
