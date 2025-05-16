@@ -1,262 +1,128 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import axios from 'axios';
 
-const CLIENT_API_BASE_URL = 'http://localhost:2030/client';
+const API_BASE_URL = 'http://localhost:2030/client';
 
 // Async thunks for API calls
-export const createClient = createAsyncThunk(
-  'clients/createClient',
-  async (clientData, { rejectWithValue }) => {
-    try {
-      const response = await axios.post(`${CLIENT_API_BASE_URL}/create`, clientData);
-      return response.data;
-    } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to create client');
-    }
-  }
-);
+export const fetchClients = createAsyncThunk('clients/fetchClients', async () => {
+  const response = await fetch(`${API_BASE_URL}/`);
+  return await response.json();
+});
 
-export const getAllClients = createAsyncThunk(
-  'clients/getAllClients',
-  async (_, { rejectWithValue }) => {
-    try {
-      const response = await axios.get(`${CLIENT_API_BASE_URL}/`);
-      return response.data;
-    } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to fetch clients');
-    }
-  }
-);
+export const fetchClientById = createAsyncThunk('clients/fetchClientById', async (id) => {
+  const response = await fetch(`${API_BASE_URL}/${id}`);
+  return await response.json();
+});
 
-export const getClientById = createAsyncThunk(
-  'clients/getClientById',
-  async (id, { rejectWithValue }) => {
-    try {
-      const response = await axios.get(`${CLIENT_API_BASE_URL}/${id}`);
-      return response.data;
-    } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to fetch client');
-    }
-  }
-);
+export const createClient = createAsyncThunk('clients/createClient', async (clientData) => {
+  const response = await fetch(`${API_BASE_URL}/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(clientData),
+  });
+  return await response.json();
+});
 
-export const updateClient = createAsyncThunk(
-  'clients/updateClient',
-  async ({ id, clientData }, { rejectWithValue }) => {
-    try {
-      const response = await axios.put(`${CLIENT_API_BASE_URL}/${id}`, clientData);
-      return response.data;
-    } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to update client');
-    }
-  }
-);
+export const updateClient = createAsyncThunk('clients/updateClient', async ({ id, clientData }) => {
+  const response = await fetch(`${API_BASE_URL}/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(clientData),
+  });
+  return await response.json();
+});
 
-export const deleteClient = createAsyncThunk(
-  'clients/deleteClient',
-  async (id, { rejectWithValue }) => {
-    try {
-      await axios.delete(`${CLIENT_API_BASE_URL}/${id}`);
-      return id;
-    } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to delete client');
-    }
-  }
-);
+export const deleteClient = createAsyncThunk('clients/deleteClient', async (id) => {
+  await fetch(`${API_BASE_URL}/${id}`, { method: 'DELETE' });
+  return id;
+});
 
-export const getAllWhitelabels = createAsyncThunk(
-  'clients/getAllWhitelabels',
-  async (_, { rejectWithValue }) => {
-    try {
-      const response = await axios.get(`${CLIENT_API_BASE_URL}/whitelabels`);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to fetch whitelabel users');
-    }
-  }
-);
+export const fetchWhitelabels = createAsyncThunk('clients/fetchWhitelabels', async () => {
+  const response = await fetch(`${API_BASE_URL}/whitelabels`);
+  return await response.json();
+});
 
-export const getProofTypes = createAsyncThunk(
-  'clients/getProofTypes',
-  async (_, { rejectWithValue }) => {
-    try {
-      const response = await axios.get(`${CLIENT_API_BASE_URL}/prooftypes`);
-      console.log('ProofTypes response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('getProofTypes error:', error.response?.data || error.message);
-      return rejectWithValue(error.response?.data?.message || 'Failed to fetch proof types');
-    }
-  }
-);
+export const fetchProofTypes = createAsyncThunk('clients/fetchProofTypes', async () => {
+  const response = await fetch(`${API_BASE_URL}/prooftypes`);
+  return await response.json();
+});
 
-export const getSports = createAsyncThunk(
-  'clients/getSports',
-  async (_, { rejectWithValue }) => {
-    try {
-      const response = await axios.get(`${CLIENT_API_BASE_URL}/sports`);
-      console.log('Sports response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('getSports error:', error.response?.data || error.message);
-      return rejectWithValue(error.response?.data?.message || 'Failed to fetch sports');
-    }
-  }
-);
+export const fetchSports = createAsyncThunk('clients/fetchSports', async () => {
+  const response = await fetch(`${API_BASE_URL}/sports`);
+  return await response.json();
+});
 
-export const getMarkets = createAsyncThunk(
-  'clients/getMarkets',
-  async (_, { rejectWithValue }) => {
-    try {
-      const response = await axios.get(`${CLIENT_API_BASE_URL}/markets`);
-      console.log('Markets response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('getMarkets error:', error.response?.data || error.message);
-      return rejectWithValue(error.response?.data?.message || 'Failed to fetch markets');
-    }
-  }
-);
+export const fetchMarkets = createAsyncThunk('clients/fetchMarkets', async () => {
+  const response = await fetch(`${API_BASE_URL}/markets`);
+  return await response.json();
+});
 
 const clientSlice = createSlice({
   name: 'clients',
   initialState: {
     clients: [],
-    selectedClient: null,
-    whitelabelUsers: [],
+    currentClient: null,
+    whitelabels: [],
     proofTypes: [],
     sports: [],
     markets: [],
-    loading: false,
+    status: 'idle',
     error: null,
   },
   reducers: {
-    clearError: (state) => {
-      state.error = null;
-    },
-    clearSelectedClient: (state) => {
-      state.selectedClient = null;
+    resetCurrentClient: (state) => {
+      state.currentClient = null;
     },
   },
   extraReducers: (builder) => {
     builder
-      .addCase(createClient.pending, (state) => {
-        state.loading = true;
-        state.error = null;
+      .addCase(fetchClients.fulfilled, (state, action) => {
+        state.clients = action.payload;
+        state.status = 'succeeded';
+      })
+      .addCase(fetchClientById.fulfilled, (state, action) => {
+        state.currentClient = action.payload;
+        state.status = 'succeeded';
       })
       .addCase(createClient.fulfilled, (state, action) => {
-        state.loading = false;
         state.clients.push(action.payload);
-      })
-      .addCase(createClient.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-      })
-      .addCase(getAllClients.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(getAllClients.fulfilled, (state, action) => {
-        state.loading = false;
-        state.clients = Array.isArray(action.payload) ? action.payload : [];
-      })
-      .addCase(getAllClients.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-      })
-      .addCase(getClientById.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(getClientById.fulfilled, (state, action) => {
-        state.loading = false;
-        state.selectedClient = action.payload;
-      })
-      .addCase(getClientById.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-      })
-      .addCase(updateClient.pending, (state) => {
-        state.loading = true;
-        state.error = null;
+        state.status = 'succeeded';
       })
       .addCase(updateClient.fulfilled, (state, action) => {
-        state.loading = false;
-        state.clients = state.clients.map((client) =>
-          client._id === action.payload._id ? action.payload : client
-        );
-        state.selectedClient = action.payload;
-      })
-      .addCase(updateClient.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-      })
-      .addCase(deleteClient.pending, (state) => {
-        state.loading = true;
-        state.error = null;
+        const index = state.clients.findIndex((client) => client._id === action.payload._id);
+        if (index !== -1) state.clients[index] = action.payload;
+        state.status = 'succeeded';
       })
       .addCase(deleteClient.fulfilled, (state, action) => {
-        state.loading = false;
         state.clients = state.clients.filter((client) => client._id !== action.payload);
+        state.status = 'succeeded';
       })
-      .addCase(deleteClient.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
+      .addCase(fetchWhitelabels.fulfilled, (state, action) => {
+        state.whitelabels = action.payload.data;
       })
-      .addCase(getAllWhitelabels.pending, (state) => {
-        state.loading = true;
-        state.error = null;
+      .addCase(fetchProofTypes.fulfilled, (state, action) => {
+        state.proofTypes = action.payload;
       })
-      .addCase(getAllWhitelabels.fulfilled, (state, action) => {
-        state.loading = false;
-        state.whitelabelUsers = Array.isArray(action.payload) ? action.payload : [];
+      .addCase(fetchSports.fulfilled, (state, action) => {
+        state.sports = action.payload;
       })
-      .addCase(getAllWhitelabels.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-        state.whitelabelUsers = [];
+      .addCase(fetchMarkets.fulfilled, (state, action) => {
+        state.markets = action.payload;
       })
-      .addCase(getProofTypes.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(getProofTypes.fulfilled, (state, action) => {
-        state.loading = false;
-        state.proofTypes = Array.isArray(action.payload) ? action.payload : [];
-      })
-      .addCase(getProofTypes.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-        state.proofTypes = [];
-      })
-      .addCase(getSports.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(getSports.fulfilled, (state, action) => {
-        state.loading = false;
-        state.sports = Array.isArray(action.payload) ? action.payload : [];
-      })
-      .addCase(getSports.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-        state.sports = [];
-      })
-      .addCase(getMarkets.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(getMarkets.fulfilled, (state, action) => {
-        state.loading = false;
-        state.markets = Array.isArray(action.payload) ? action.payload : [];
-      })
-      .addCase(getMarkets.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-        state.markets = [];
-      });
+      .addMatcher(
+        (action) => action.type.endsWith('/pending'),
+        (state) => {
+          state.status = 'loading';
+        }
+      )
+      .addMatcher(
+        (action) => action.type.endsWith('/rejected'),
+        (state, action) => {
+          state.status = 'failed';
+          state.error = action.error.message;
+        }
+      );
   },
 });
 
-export const { clearError, clearSelectedClient } = clientSlice.actions;
+export const { resetCurrentClient } = clientSlice.actions;
 export default clientSlice.reducer;

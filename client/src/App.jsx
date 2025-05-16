@@ -41,7 +41,7 @@ import Whitelabel from './pages/admin/Whitelabel';
 import SportsManagement from './pages/admin/SportsManagement';
 import ProofType from './pages/admin/ProofType';
 import MarketManager from './pages/admin/market';
-import ClientForm from './pages/admin/Client';
+import ClientManager from './pages/admin/Client';
 
 
 function App() {
@@ -87,7 +87,7 @@ function App() {
           <Route
             path="/clients"
             element={
-                <ClientForm />
+                <ClientManager />
             }
           />
         </Routes>
