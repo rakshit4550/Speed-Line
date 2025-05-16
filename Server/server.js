@@ -6,6 +6,7 @@ import whitelabelRouter from './routes/whiteLabel.js';
 import prooftypeRouter from './routes/prooftype.js';
 import sportsRouter from './routes/sports.js';
 import marketRouter from './routes/market.js';
+import clientRouter from './routes/client.js';
 
 const app = express();
 
@@ -31,6 +32,8 @@ app.use('/prooftype', prooftypeRouter);
 app.use('/sports', sportsRouter);
 
 app.use('/market', marketRouter);
+
+app.use('/client', clientRouter)
 
 const PORT = 2030;
 

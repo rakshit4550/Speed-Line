@@ -13,6 +13,4 @@ const proofSchema = new mongoose.Schema({
   },
 });
 
-proofSchema.index({ type: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
-
 export default mongoose.model('Proof', proofSchema);
