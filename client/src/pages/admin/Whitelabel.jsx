@@ -479,11 +479,11 @@ const Whitelabel = () => {
             </footer>
 
             <div className="flex justify-between py-3 mr-2 ">
-              <div className="col-span-2 text-gray-500 text-sm ml-2">
+              {/* <div className="col-span-2 text-gray-500 text-sm ml-2">
                 {currentWhitelabel.createdAt
                   ? new Date(currentWhitelabel.createdAt).toLocaleString()
                   : "N/A"}
-              </div>
+              </div> */}
               <button
                 onClick={() => setPreviewOpen(false)}
                 className=" hover:bg-gray-600 p-[10px] px-4 text-black rounded-lg text-end  bg-red-600 transition"
