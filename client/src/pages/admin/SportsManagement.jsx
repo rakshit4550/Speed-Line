@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useCallback } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { FaPlus, FaEdit, FaTrash, FaEye } from "react-icons/fa";
@@ -14,7 +12,6 @@ import {
 } from "../../redux/sports/sportsSlice";
 import Header from "../../components/admin/Header";
 
-// Constants
 const API_BASE_URL = "http://localhost:2030";
 
 const SportsManager = () => {
@@ -27,12 +24,10 @@ const SportsManager = () => {
   const [formData, setFormData] = useState({ sportsName: "" });
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  // Fetch sports on mount
   useEffect(() => {
     dispatch(fetchSports());
   }, [dispatch]);
 
-  // Reset form when modal closes
   useEffect(() => {
     if (!open) {
       handleReset();
@@ -41,7 +36,6 @@ const SportsManager = () => {
     }
   }, [open]);
 
-  // Clear errors after 3 seconds
   useEffect(() => {
     if (error) {
       setTimeout(() => {

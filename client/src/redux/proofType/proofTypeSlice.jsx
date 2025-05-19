@@ -1,3 +1,4 @@
+
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
 
@@ -29,7 +30,7 @@ export const updateProof = createAsyncThunk('proof/updateProof', async ({ id, pr
 
 export const deleteProof = createAsyncThunk('proof/deleteProof', async (id, { rejectWithValue }) => {
   try {
-    await axios.delete(`${API_URL}/${id}`);
+    const response = await axios.delete(`${API_URL}/${id}`);
     return id;
   } catch (error) {
     return rejectWithValue(error.response.data.message);

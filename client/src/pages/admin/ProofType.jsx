@@ -12,9 +12,8 @@ import {
   setError,
 } from "../../redux/proofType/proofTypeSlice";
 import Header from "../../components/admin/Header";
-import DOMPurify from "dompurify"; // Import DOMPurify for sanitization
+import DOMPurify from "dompurify";
 
-// Constants
 const API_BASE_URL = "http://localhost:2030";
 
 const ProofManager = () => {
@@ -24,18 +23,16 @@ const ProofManager = () => {
   const [open, setOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [currentId, setCurrentId] = useState(null);
-const [formData, setFormData] = useState({ type: "", content: "" });
+  const [formData, setFormData] = useState({ type: "", content: "" });
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewProof, setPreviewProof] = useState(null);
 
-  // Fetch proofs on mount
   useEffect(() => {
     if (status === "idle") {
       dispatch(fetchProofs());
     }
   }, [status, dispatch]);
 
-  // Reset form when modal closes
   useEffect(() => {
     if (!open) {
       handleReset();
@@ -44,7 +41,6 @@ const [formData, setFormData] = useState({ type: "", content: "" });
     }
   }, [open]);
 
-  // Clear errors after 3 seconds
   useEffect(() => {
     if (error) {
       setTimeout(() => {
@@ -53,7 +49,6 @@ const [formData, setFormData] = useState({ type: "", content: "" });
     }
   }, [error, dispatch]);
 
-  // Clear editing proof when preview closes
   useEffect(() => {
     if (!previewOpen) {
       setPreviewProof(null);
@@ -61,7 +56,6 @@ const [formData, setFormData] = useState({ type: "", content: "" });
     }
   }, [previewOpen, dispatch]);
 
-  // Update form data when editingProof changes
   useEffect(() => {
     if (editingProof) {
       setFormData({ type: editingProof.type, content: editingProof.content });
