@@ -362,7 +362,7 @@ const getPreviewHTML = () => {
         .map(
           (image) =>
             image.path
-              ? `<img src="${image.path}" alt="${image.filename}" class=" w-full h-[240px] m-1 mt-3 mr-10" />`
+              ? `<img src="${image.path}" alt="${image.filename}" class=" w-full h-[150px] " />`
               : '<p class="text-gray-500">Image not available</p>'
         )
         .join('')
@@ -397,7 +397,7 @@ const getPreviewHTML = () => {
                 <span class="font-bold">User: ${previewData?.user || 'N/A'}</span>
               </div>
               <div class="flex-1 mr-2.5">
-                <span class="font-bold">Total Amount: $${previewData?.amount ? parseFloat(previewData.amount).toFixed(2) : 'N/A'}</span>
+                <span class="font-bold">Total Amount: ${previewData?.amount ? parseFloat(previewData.amount).toFixed(2) : 'N/A'}</span>
               </div>
               <div class="flex-1">
                 <span class="font-bold">Sport Name: ${previewData?.sportname || 'N/A'}</span><br/>
@@ -405,19 +405,21 @@ const getPreviewHTML = () => {
                 <span class="font-bold">Market Name:${previewData?.marketname || 'N/A'}</span> 
               </div>
             </div>
-            <div class=" leading-6 text-[14px] mt-[24px] h-[300px] mx-[24px]">
+            <div class=" leading-6 text-[14px] mt-[24px] h-[350px] mx-[24px]">
               ${proofContentHTML}                          
             </div>
-            <div class="mt-5  w-full flex flex-wrap gap-2.5 mx-[24px]">
+              <div class="italic  font-bold mt-[25px] mx-[24px] ">
+              <span class="font-bold text-[16px]">M${previewData?.navigation || 'N/A'}</span> 
+            
+            </div>
+            <div class=" mt-5 w-full flex flex-wrap gap-2.5 mr-[25px]">
               ${imagesHTML}
             </div>
-            <div class="mt-5 text-sm text-gray-500 italic mx-[24px]">
-              ${previewData?.navigation || 'N/A'}
-            </div>
+          
           </main>
-          <footer class="absolute bottom-0 w-full flex justify-between p-5 text-white" style="background-color: ${previewData?.whitelabel?.hexacode || '#00008B'};">
-            <p>${previewData?.whitelabel?.url || 'No URL available'}</p>
-            <p>T&C Apply</p>
+          <footer class="absolute bottom-0 w-full flex justify-between p-4 text-white" style="background-color: ${previewData?.whitelabel?.hexacode || '#00008B'};">
+            <p class="text-[10px]"> ${previewData?.whitelabel?.url || 'No URL available'}</p>
+            <p class="text-[5px] text-right "> T&C Apply</p>
           </footer>
         </div>
       </body>
