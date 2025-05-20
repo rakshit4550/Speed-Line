@@ -1,1 +1,5 @@
 @import "tailwindcss";
+/* App.css or index.css */
+body {
+  font-family: 'Amaranth', sans-serif;
+}

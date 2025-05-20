@@ -331,30 +331,8 @@ const getPreviewHTML = () => {
     proofContent = proofContent.replace(regex, placeholders[placeholder]);
   });
 
-  // Format proof content with bold conclusion
-  let proofContentHTML = proofContent;
-  const conclusionStart = proofContentHTML.indexOf('Conclusion:');
-  if (conclusionStart !== -1) {
-    const beforeConclusion = proofContentHTML.substring(0, conclusionStart);
-    const conclusionAndAfter = proofContentHTML.substring(conclusionStart);
-    const conclusionEnd = conclusionAndAfter.indexOf('We hope');
-    if (conclusionEnd !== -1) {
-      const conclusionText = conclusionAndAfter.substring(0, conclusionEnd);
-      const afterConclusion = conclusionAndAfter.substring(conclusionEnd);
-      proofContentHTML = `
-        ${beforeConclusion}
-        <strong class="font-bold">${conclusionText}</strong>
-        ${afterConclusion}
-      `;
-    } else {
-      proofContentHTML = `
-        ${beforeConclusion}
-        <strong class="font-bold">${conclusionAndAfter}</strong>
-      `;
-    }
-  } else {
-    proofContentHTML = `<div class="mb-4">${proofContentHTML}</div>`;
-  }
+  // Use proof content directly without conclusion-specific formatting
+  const proofContentHTML = `<div class="">${proofContent}</div>`;
 
   const imagesHTML = previewData?.images?.length
     ? previewData.images
@@ -374,41 +352,45 @@ const getPreviewHTML = () => {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <script src="https://cdn.tailwindcss.com"></script>
+         <link href="https://fonts.googleapis.com/css2?family=Amaranth&display=swap" rel="stylesheet">
         <style>
           @page {
              height: 100%;
             width: 100%;
             margin: 0;
           }
+            body {
+  font-family: 'Amaranth', sans-serif;
+}
         </style>
       </head>
-      <body class="font-sans w-full h-full text-black text-base m-0 p-0 ">
+      <body class="font-amaranth w-full h-full text-black text-base m-0 p-0 " >
         <div class=" min-h-[842px] mx-auto flex flex-col">
           <header class="sticky top-0 z-10 flex items-center justify-between p-5 text-white" style="background-color: ${previewData?.whitelabel?.hexacode || '#00008B'};">
-            <img src="${previewData?.whitelabel?.logoBase64 || getImageUrl(previewData?.whitelabel?.logo)}" alt="Whitelabel Logo" class="max-h-[50px] w-auto" />
+            <img src="${previewData?.whitelabel?.logoBase64 || getImageUrl(previewData?.whitelabel?.logo)}" alt="Whitelabel Logo" class=" ml-[20px] max-h-[50px] w-auto" />
             <span></span>
           </header>
-          <main class="p-5" style="min-height: calc(842px - 100px);">
+          <main class="p-3" style="min-height: calc(842px - 100px);">
             <div class="flex justify-between mb-5 text-[14px] mx-[25px]">
               <div class="flex-1 mr-2.5">
-                <span class="font-bold">Whitelabel User:${previewData?.username || 'N/A'}</span> <br/>
-                <span class="font-bold">Agent:${previewData?.agentname || 'N/A'}</span> <br/>
+                <span class="font-bold">Whitelabel User: ${previewData?.username || 'N/A'}</span> <br/>
+                <span class="font-bold">Agent: ${previewData?.agentname || 'N/A'}</span> <br/>
                 <span class="font-bold">User: ${previewData?.user || 'N/A'}</span>
               </div>
               <div class="flex-1 mr-2.5">
-                <span class="font-bold">Total Amount: ${previewData?.amount ? parseFloat(previewData.amount).toFixed(2) : 'N/A'}</span>
+                <span class="font-bold">Total Amount: ${previewData?.amount || 'N/A'}</span>
               </div>
               <div class="flex-1">
                 <span class="font-bold">Sport Name: ${previewData?.sportname || 'N/A'}</span><br/>
-                <span class="font-bold">Event Name:${previewData?.eventname || 'N/A'}</span> <br/>
-                <span class="font-bold">Market Name:${previewData?.marketname || 'N/A'}</span> 
+                <span class="font-bold">Event Name: ${previewData?.eventname || 'N/A'}</span> <br/>
+                <span class="font-bold">Market Name: ${previewData?.marketname || 'N/A'}</span> 
               </div>
             </div>
-            <div class=" leading-6 text-[14px] mt-[24px] h-[350px] mx-[24px]">
+            <div class=" leading-6 text-[16px] mt-[24px] text-black mx-[24px]">
               ${proofContentHTML}                          
             </div>
-              <div class="italic  font-bold mt-[25px] mx-[24px] ">
-              <span class="font-bold text-[16px]">M${previewData?.navigation || 'N/A'}</span> 
+              <div class="italic  font-bold  ml-[48px]    mx-[24px] ">
+              <span class="font-bold text-[16px]">${previewData?.navigation || 'N/A'}</span> 
             
             </div>
             <div class=" mt-5 w-full flex flex-wrap gap-2.5 mr-[25px]">
@@ -549,10 +531,11 @@ const getPreviewHTML = () => {
       <h1 className="text-2xl font-bold mb-6">{view === 'edit' ? 'Edit Client' : 'Add Client'}</h1>
       <form onSubmit={handleSubmit} className="bg-white shadow-md rounded-lg p-6 space-y-4">
            <div>
-          <label className="block text-sm font-medium text-gray-700">Username</label>
+          <label className="block text-sm font-medium text-gray-700">White Lable</label>
           <input
             type="text"
             name="username"
+            placeholder='Select white lable, e.g. cbtfturbo'
             value={formData.username}
             onChange={handleUsernameChange}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg"
@@ -586,6 +569,7 @@ const getPreviewHTML = () => {
           <input
             type="text"
             name="agentname"
+            placeholder='Enter agent name'
             value={formData.agentname}
             onChange={handleChange}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg"
@@ -597,6 +581,7 @@ const getPreviewHTML = () => {
           <input
             type="text"
             name="user"
+            placeholder='Enter user name,e.g. abcd2000'
             value={formData.user}
             onChange={handleChange}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg"
@@ -608,6 +593,7 @@ const getPreviewHTML = () => {
           <input
             type="number"
             name="amount"
+            placeholder='Enter bet or bets amount'
             value={formData.amount}
             onChange={handleChange}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg"
@@ -653,6 +639,7 @@ const getPreviewHTML = () => {
           <input
             type="text"
             name="eventname"
+            placeholder=' Enter short event name '
             value={formData.eventname}
             onChange={handleChange}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg"
@@ -660,18 +647,19 @@ const getPreviewHTML = () => {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">Navigation</label>
+          <label className="block text-sm font-medium text-gray-700"> Market Navigation</label>
           <input
             type="text"
             name="navigation"
             value={formData.navigation}
             onChange={handleChange}
+            placeholder='Enter market navigation '
             className="w-full px-4 py-2 border border-gray-300 rounded-lg"
             required
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">Images (up to 5)</label>
+          <label className="block text-sm font-medium text-gray-700">Select proof Image(Maximum uplode file size: 5 MB)</label>
           <input
             type="file"
             name="images"
@@ -705,6 +693,7 @@ const getPreviewHTML = () => {
           <input
             type="number"
             name="profitAndLoss"
+            placeholder='Enter market or markets Profit and Loss without Commission'
             value={formData.profitAndLoss}
             onChange={handleChange}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg"
