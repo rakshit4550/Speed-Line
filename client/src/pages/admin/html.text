@@ -1,0 +1,22 @@
+ <div class="section">
+                <p class="text-sm"><strong>Agent Name:</strong> ${previewData?.agentname || 'N/A'}</p>
+                <p class="text-sm"><strong>Username:</strong> ${previewData?.username || 'N/A'}</p>
+                <p class="text-sm"><strong>User:</strong> ${previewData?.user || 'N/A'}</p>
+                <p class="text-sm"><strong>Amount:</strong> ${previewData?.amount || 'N/A'}</p>
+                <p class="text-sm"><strong>Event Name:</strong> ${previewData?.eventname || 'N/A'}</p>
+                <p class="text-sm"><strong>Navigation:</strong> ${previewData?.navigation || 'N/A'}</p>
+              </div>
+              <div class="section ">
+                ${proofContentHTML}
+              </div>
+              <div class="section">
+                <p class="text-sm font-bold">Images:</p>
+                <div class="flex">
+                  ${imagesHTML}
+                </div>
+              </div>
+              <div>
+                <p class="text-sm"><strong>Sport:</strong> ${previewData?.sportname || 'N/A'}</p>
+                <p class="text-sm"><strong>Market:</strong> ${previewData?.marketname || 'N/A'}</p>
+                <p class="text-sm"><strong>Profit & Loss:</strong> ${previewData?.profitAndLoss || 'N/A'}</p>
+              </div>

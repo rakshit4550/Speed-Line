@@ -292,131 +292,139 @@ function ClientManager() {
     return `${API_BASE_URL}/${formattedPath}`;
   };
 
-  const getPreviewHTML = () => {
-    let proofContent = DOMPurify.sanitize(previewData?.proofContent || 'No content available', {
-      ADD_TAGS: ['style'],
-      ADD_ATTR: ['class', 'style'],
-    });
+const getPreviewHTML = () => {
+  let proofContent = DOMPurify.sanitize(previewData?.proofContent || 'No content available', {
+    ADD_TAGS: ['style'],
+    ADD_ATTR: ['class', 'style'],
+  });
 
-    // Simplify placeholders in the proof content
-    const placeholderMap = {
-      '{data\\.user\\|\\|""}': '{USER}',
-      '{data\\.totalAmount\\|\\|""}': '{AMOUNT}',
-      '{data\\.profitLoss\\|\\|""}': '{PROFIT_LOSS}',
-      '{data\\.issueType\\|\\|"odds manipulating or odds hedging"}': '{ISSUE_TYPE}',
-      '{data\\.sportName\\|\\|"Sport"}': '{SPORT_NAME}',
-      '{data\\.eventName\\|\\|"Event"}': '{EVENT_NAME}',
-      '{data\\.marketName\\|\\|"Market"}': '{MARKET_NAME}',
-      '{data\\.marketDetails\\s&&\\s{data\\.marketDetails}}': '',
-    };
+  // Simplify placeholders in the proof content
+  const placeholderMap = {
+    '{data\\.user\\|\\|""}': '{USER}',
+    '{data\\.totalAmount\\|\\|""}': '{AMOUNT}',
+    '{data\\.profitLoss\\|\\|""}': '{PROFIT_LOSS}',
+    '{data\\.issueType\\|\\|"odds manipulating or odds hedging"}': '{ISSUE_TYPE}',
+    '{data\\.sportName\\|\\|"Sport"}': '{SPORT_NAME}',
+    '{data\\.eventName\\|\\|"Event"}': '{EVENT_NAME}',
+    '{data\\.marketName\\|\\|"Market"}': '{MARKET_NAME}',
+    '{data\\.marketDetails\\s&&\\s{data\\.marketDetails}}': '',
+  };
 
-    Object.keys(placeholderMap).forEach((oldPlaceholder) => {
-      const regex = new RegExp(oldPlaceholder, 'g');
-      proofContent = proofContent.replace(regex, placeholderMap[oldPlaceholder]);
-    });
+  Object.keys(placeholderMap).forEach((oldPlaceholder) => {
+    const regex = new RegExp(oldPlaceholder, 'g');
+    proofContent = proofContent.replace(regex, placeholderMap[oldPlaceholder]);
+  });
 
-    // Define simplified placeholders and their replacements
-    const placeholders = {
-      '{USER}': previewData?.user || 'N/A',
-      '{AMOUNT}': previewData?.amount || 'N/A',
-      '{PROFIT_LOSS}': previewData?.profitAndLoss || 'N/A',
-      '{ISSUE_TYPE}': 'odds manipulating or odds hedging', // Default value as per original logic
-      '{SPORT_NAME}': previewData?.sportname || 'Sport',
-      '{EVENT_NAME}': previewData?.eventname || 'Event',
-      '{MARKET_NAME}': previewData?.marketname || 'Market',
-    };
+  // Define simplified placeholders and their replacements
+  const placeholders = {
+    '{USER}': previewData?.user || 'N/A',
+    '{AMOUNT}': previewData?.amount ? `$${parseFloat(previewData.amount).toFixed(2)}` : 'N/A',
+    '{PROFIT_LOSS}': previewData?.profitAndLoss ? parseFloat(previewData.profitAndLoss).toFixed(2) : 'N/A',
+    '{ISSUE_TYPE}': 'odds manipulating or odds hedging',
+    '{SPORT_NAME}': previewData?.sportname || 'N/A',
+    '{EVENT_NAME}': previewData?.eventname || 'N/A',
+    '{MARKET_NAME}': previewData?.marketname || 'N/A',
+  };
 
-    // Replace simplified placeholders with dynamic values
-    Object.keys(placeholders).forEach((placeholder) => {
-      const regex = new RegExp(placeholder, 'g');
-      proofContent = proofContent.replace(regex, placeholders[placeholder]);
-    });
+  // Replace simplified placeholders with dynamic values
+  Object.keys(placeholders).forEach((placeholder) => {
+    const regex = new RegExp(placeholder, 'g');
+    proofContent = proofContent.replace(regex, placeholders[placeholder]);
+  });
 
-    let proofContentHTML = proofContent;
-    const conclusionStart = proofContentHTML.indexOf('Conclusion:');
-    if (conclusionStart !== -1) {
-      const beforeConclusion = proofContentHTML.substring(0, conclusionStart);
-      const conclusionAndAfter = proofContentHTML.substring(conclusionStart);
-      const conclusionEnd = conclusionAndAfter.indexOf('We hope');
-      if (conclusionEnd !== -1) {
-        const conclusionText = conclusionAndAfter.substring(0, conclusionEnd);
-        const afterConclusion = conclusionAndAfter.substring(conclusionEnd);
-        proofContentHTML = `
-          ${beforeConclusion}
-          <strong style="font-weight: bold;">${conclusionText}</strong>
-          ${afterConclusion}
-        `;
-      } else {
-        proofContentHTML = `
-          ${beforeConclusion}
-          <strong style="font-weight: bold;">${conclusionAndAfter}</strong>
-        `;
-      }
+  // Format proof content with bold conclusion
+  let proofContentHTML = proofContent;
+  const conclusionStart = proofContentHTML.indexOf('Conclusion:');
+  if (conclusionStart !== -1) {
+    const beforeConclusion = proofContentHTML.substring(0, conclusionStart);
+    const conclusionAndAfter = proofContentHTML.substring(conclusionStart);
+    const conclusionEnd = conclusionAndAfter.indexOf('We hope');
+    if (conclusionEnd !== -1) {
+      const conclusionText = conclusionAndAfter.substring(0, conclusionEnd);
+      const afterConclusion = conclusionAndAfter.substring(conclusionEnd);
+      proofContentHTML = `
+        ${beforeConclusion}
+        <strong class="font-bold">${conclusionText}</strong>
+        ${afterConclusion}
+      `;
     } else {
-      proofContentHTML = `<div style="margin-bottom: 1rem;">${proofContentHTML}</div>`;
+      proofContentHTML = `
+        ${beforeConclusion}
+        <strong class="font-bold">${conclusionAndAfter}</strong>
+      `;
     }
+  } else {
+    proofContentHTML = `<div class="mb-4">${proofContentHTML}</div>`;
+  }
 
-    const imagesHTML = previewData?.images?.length
-      ? previewData.images
+  const imagesHTML = previewData?.images?.length
+    ? previewData.images
         .map(
           (image) =>
             image.path
-              ? `<img src="${image.path}" alt="${image.filename}" style="max-width: 100px; margin: 0.25rem;" />`
-              : '<p style="color: #6b7280;">Image not available</p>'
+              ? `<img src="${image.path}" alt="${image.filename}" class=" w-full h-[240px] m-1 mt-3 mr-10" />`
+              : '<p class="text-gray-500">Image not available</p>'
         )
         .join('')
-      : '<p style="color: #6b7280;">No images available</p>';
+    : '<p class="text-gray-500">No images available</p>';
 
-    // Fallback CSS for PDF rendering
-
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <script src="https://cdn.tailwindcss.com"></script>
-          
-        </head>
-        <body>
-          <div class="container font-sans">
-            <header class="header  header-footer flex items-center h-22 " style="background-color: ${previewData?.whitelabel?.hexacode || '#00008B'};">
-              <img src="${previewData?.whitelabel?.logoBase64 || getImageUrl(previewData?.whitelabel?.logo)}" alt="Whitelabel Logo" class="logo -[70px] pl-[20px]" />
-            </header>
-            <main class="main">
-              <div class="section">
-                <p class="text-sm bg-amber-300"><strong>Agent Name:</strong> ${previewData?.agentname || 'N/A'}</p>
-                <p class="text-sm"><strong>Username:</strong> ${previewData?.username || 'N/A'}</p>
-                <p class="text-sm"><strong>User:</strong> ${previewData?.user || 'N/A'}</p>
-                <p class="text-sm"><strong>Amount:</strong> ${previewData?.amount || 'N/A'}</p>
-                <p class="text-sm"><strong>Event Name:</strong> ${previewData?.eventname || 'N/A'}</p>
-                <p class="text-sm"><strong>Navigation:</strong> ${previewData?.navigation || 'N/A'}</p>
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script src="https://cdn.tailwindcss.com"></script>
+        <style>
+          @page {
+             height: 100%;
+            width: 100%;
+            margin: 0;
+          }
+        </style>
+      </head>
+      <body class="font-sans w-full h-full text-black text-base m-0 p-0 ">
+        <div class=" min-h-[842px] mx-auto flex flex-col">
+          <header class="sticky top-0 z-10 flex items-center justify-between p-5 text-white" style="background-color: ${previewData?.whitelabel?.hexacode || '#00008B'};">
+            <img src="${previewData?.whitelabel?.logoBase64 || getImageUrl(previewData?.whitelabel?.logo)}" alt="Whitelabel Logo" class="max-h-[50px] w-auto" />
+            <span></span>
+          </header>
+          <main class="p-5" style="min-height: calc(842px - 100px);">
+            <div class="flex justify-between mb-5 text-[14px] mx-[25px]">
+              <div class="flex-1 mr-2.5">
+                <span class="font-bold">Whitelabel User:${previewData?.username || 'N/A'}</span> <br/>
+                <span class="font-bold">Agent:${previewData?.agentname || 'N/A'}</span> <br/>
+                <span class="font-bold">User: ${previewData?.user || 'N/A'}</span>
               </div>
-              <div class="section ">
-                ${proofContentHTML}
+              <div class="flex-1 mr-2.5">
+                <span class="font-bold">Total Amount: $${previewData?.amount ? parseFloat(previewData.amount).toFixed(2) : 'N/A'}</span>
               </div>
-              <div class="section">
-                <p class="text-sm font-bold">Images:</p>
-                <div class="flex">
-                  ${imagesHTML}
-                </div>
+              <div class="flex-1">
+                <span class="font-bold">Sport Name: ${previewData?.sportname || 'N/A'}</span><br/>
+                <span class="font-bold">Event Name:${previewData?.eventname || 'N/A'}</span> <br/>
+                <span class="font-bold">Market Name:${previewData?.marketname || 'N/A'}</span> 
               </div>
-              <div>
-                <p class="text-sm"><strong>Sport:</strong> ${previewData?.sportname || 'N/A'}</p>
-                <p class="text-sm"><strong>Market:</strong> ${previewData?.marketname || 'N/A'}</p>
-                <p class="text-sm"><strong>Profit & Loss:</strong> ${previewData?.profitAndLoss || 'N/A'}</p>
-              </div>
-            </main>
-            <footer class="footer" style="background-color: ${previewData?.whitelabel?.hexacode || '#00008B'};">
-              <p class="text-sm">${previewData?.whitelabel?.url || 'No URL available'}</p>
-              <p class="text-sm">T&C Apply</p>
-            </footer>
-          </div>
-        </body>
-      </html>
-    `;
-    return html;
-  };
+            </div>
+            <div class=" leading-6 text-[14px] mt-[24px] h-[300px] mx-[24px]">
+              ${proofContentHTML}                          
+            </div>
+            <div class="mt-5  w-full flex flex-wrap gap-2.5 mx-[24px]">
+              ${imagesHTML}
+            </div>
+            <div class="mt-5 text-sm text-gray-500 italic mx-[24px]">
+              ${previewData?.navigation || 'N/A'}
+            </div>
+          </main>
+          <footer class="absolute bottom-0 w-full flex justify-between p-5 text-white" style="background-color: ${previewData?.whitelabel?.hexacode || '#00008B'};">
+            <p>${previewData?.whitelabel?.url || 'No URL available'}</p>
+            <p>T&C Apply</p>
+          </footer>
+        </div>
+      </body>
+    </html>
+  `;
+  return html;
+};
 
   const handleDownloadPDF = async () => {
     try {
@@ -722,10 +730,10 @@ function ClientManager() {
   );
 
   const renderPreview = () => (
-    <div className=" flex flex-col " >
+    <div className=" flex flex-col w-full h-full justify-center items-center " >
 
       <div
-        className="w-[100vh] h-[100vh]"
+        className=""
         dangerouslySetInnerHTML={{
           __html: DOMPurify.sanitize(getPreviewHTML(), {
             ADD_TAGS: ['style', 'script'],
@@ -733,7 +741,7 @@ function ClientManager() {
           }),
         }}
       />
-      <div className="flex justify-between mt-1 p-3 space-x-4">
+      <div className="flex fixed bottom-0 justify-between mt-1 p-3 space-x-4">
         <button
           onClick={handleDownloadPDF}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
