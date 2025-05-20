@@ -41,11 +41,11 @@ function ClientManager() {
   const previewRef = useRef(null);
 
   const [formData, setFormData] = useState({
-    agentname: '',
     username: '',
+    agentname: '',
+    prooftype: '',
     user: '',
     amount: '',
-    prooftype: '',
     sportname: '',
     marketname: '',
     eventname: '',
@@ -69,8 +69,8 @@ function ClientManager() {
     } else if (view !== 'preview') {
       dispatch(resetCurrentClient());
       setFormData({
-        agentname: '',
         username: '',
+        agentname: '',
         user: '',
         amount: '',
         prooftype: '',
@@ -89,8 +89,8 @@ function ClientManager() {
   useEffect(() => {
     if (currentClient && view === 'edit') {
       setFormData({
-        agentname: currentClient.agentname || '',
         username: currentClient.username?.whitelabel_user || '',
+        agentname: currentClient.agentname || '',
         user: currentClient.user || '',
         amount: currentClient.amount || '',
         prooftype: currentClient.prooftype?.type || '',
@@ -315,10 +315,9 @@ const getPreviewHTML = () => {
     proofContent = proofContent.replace(regex, placeholderMap[oldPlaceholder]);
   });
 
-  // Define simplified placeholders and their replacements
   const placeholders = {
     '{USER}': previewData?.user || 'N/A',
-    '{AMOUNT}': previewData?.amount ? `$${parseFloat(previewData.amount).toFixed(2)}` : 'N/A',
+    '{AMOUNT}': previewData?.amount ? `${parseFloat(previewData.amount).toFixed(2)}` : 'N/A',
     '{PROFIT_LOSS}': previewData?.profitAndLoss ? parseFloat(previewData.profitAndLoss).toFixed(2) : 'N/A',
     '{ISSUE_TYPE}': 'odds manipulating or odds hedging',
     '{SPORT_NAME}': previewData?.sportname || 'N/A',
@@ -478,11 +477,11 @@ const getPreviewHTML = () => {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent Name</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Proof Type</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent Name</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Proof Type</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sport</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Market</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event Name</th>
@@ -549,18 +548,7 @@ const getPreviewHTML = () => {
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-6">{view === 'edit' ? 'Edit Client' : 'Add Client'}</h1>
       <form onSubmit={handleSubmit} className="bg-white shadow-md rounded-lg p-6 space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Agent Name</label>
-          <input
-            type="text"
-            name="agentname"
-            value={formData.agentname}
-            onChange={handleChange}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-            required
-          />
-        </div>
-        <div>
+           <div>
           <label className="block text-sm font-medium text-gray-700">Username</label>
           <input
             type="text"
@@ -575,6 +563,34 @@ const getPreviewHTML = () => {
               {usernameStatus}
             </p>
           )}
+        </div>
+                <div>
+          <label className="block text-sm font-medium text-gray-700">Proof Type</label>
+          <select
+            name="prooftype"
+            value={formData.prooftype}
+            onChange={handleChange}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            required
+          >
+            <option value="">Select Proof Type</option>
+            {proofTypes.map((pt) => (
+              <option key={pt._id} value={pt.type}>
+                {pt.type}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Agent Name</label>
+          <input
+            type="text"
+            name="agentname"
+            value={formData.agentname}
+            onChange={handleChange}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            required
+          />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700">User</label>
@@ -597,23 +613,6 @@ const getPreviewHTML = () => {
             className="w-full px-4 py-2 border border-gray-300 rounded-lg"
             required
           />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Proof Type</label>
-          <select
-            name="prooftype"
-            value={formData.prooftype}
-            onChange={handleChange}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-            required
-          >
-            <option value="">Select Proof Type</option>
-            {proofTypes.map((pt) => (
-              <option key={pt._id} value={pt.type}>
-                {pt.type}
-              </option>
-            ))}
-          </select>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700">Sport</label>
