@@ -41,7 +41,7 @@ function ClientManager() {
   const previewRef = useRef(null);
 
   const [formData, setFormData] = useState({
-    username: '',
+    whitelabel_user: '',
     agentname: '',
     prooftype: '',
     user: '',
@@ -69,7 +69,7 @@ function ClientManager() {
     } else if (view !== 'preview') {
       dispatch(resetCurrentClient());
       setFormData({
-        username: '',
+        whitelabel_user: '',
         agentname: '',
         user: '',
         amount: '',
@@ -89,7 +89,7 @@ function ClientManager() {
   useEffect(() => {
     if (currentClient && view === 'edit') {
       setFormData({
-        username: currentClient.username?.whitelabel_user || '',
+        whitelabel_user: currentClient.whitelabel_user?.whitelabel_user || '',
         agentname: currentClient.agentname || '',
         user: currentClient.user || '',
         amount: currentClient.amount || '',
@@ -102,7 +102,7 @@ function ClientManager() {
       });
       setSelectedImages([]);
       const matchedUser = whitelabels.find(
-        (wl) => wl.whitelabel_user === currentClient.username?.whitelabel_user
+        (wl) => wl.whitelabel_user === currentClient.whitelabel_user?.whitelabel_user
       );
       setIsValidUsername(!!matchedUser);
       setUsernameStatus(matchedUser ? 'User found' : 'User not found');
@@ -114,7 +114,7 @@ function ClientManager() {
 
   const handleUsernameChange = (e) => {
     const value = e.target.value;
-    setFormData({ ...formData, username: value });
+    setFormData({ ...formData, whitelabel_user: value });
 
     if (value.trim() === '') {
       setIsValidUsername(false);
@@ -205,7 +205,7 @@ function ClientManager() {
       }
 
       const matchedWhitelabel = whitelabels.find(
-        (wl) => wl.whitelabel_user === formData.username
+        (wl) => wl.whitelabel_user === formData.whitelabel_user
       );
 
       // Fetch base64 for logo if it exists
@@ -391,7 +391,7 @@ const getPreviewHTML = () => {
           <main class="p-5" style="min-height: calc(842px - 100px);">
             <div class="flex justify-between mb-5 text-[14px] mx-[25px]">
               <div class="flex-1 mr-2.5">
-                <span class="font-bold">Whitelabel User:${previewData?.username || 'N/A'}</span> <br/>
+                <span class="font-bold">Whitelabel User:${previewData?.whitelabel_user || 'N/A'}</span> <br/>
                 <span class="font-bold">Agent:${previewData?.agentname || 'N/A'}</span> <br/>
                 <span class="font-bold">User: ${previewData?.user || 'N/A'}</span>
               </div>
@@ -477,7 +477,7 @@ const getPreviewHTML = () => {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Whitelabel_User</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Proof Type</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent Name</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
@@ -495,7 +495,7 @@ const getPreviewHTML = () => {
             {clients.map((client) => (
               <tr key={client._id}>
                 <td className="px-6 py-4 whitespace-nowrap">{client.agentname}</td>
-                <td className="px-6 py-4 whitespace-nowrap">{client.username?.whitelabel_user || ''}</td>
+                <td className="px-6 py-4 whitespace-nowrap">{client.whitelabel_user?.whitelabel_user || ''}</td>
                 <td className="px-6 py-4 whitespace-nowrap">{client.user || ''}</td>
                 <td className="px-6 py-4 whitespace-nowrap">{client.amount}</td>
                 <td className="px-6 py-4 whitespace-nowrap">{client.prooftype?.type || ''}</td>
@@ -549,11 +549,11 @@ const getPreviewHTML = () => {
       <h1 className="text-2xl font-bold mb-6">{view === 'edit' ? 'Edit Client' : 'Add Client'}</h1>
       <form onSubmit={handleSubmit} className="bg-white shadow-md rounded-lg p-6 space-y-4">
            <div>
-          <label className="block text-sm font-medium text-gray-700">Username</label>
+          <label className="block text-sm font-medium text-gray-700">Whitelabel_User</label>
           <input
             type="text"
-            name="username"
-            value={formData.username}
+            name="whitelabel_user"
+            value={formData.whitelabel_user}
             onChange={handleUsernameChange}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg"
             required
