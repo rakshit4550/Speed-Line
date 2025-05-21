@@ -1,11 +1,9 @@
 import Proof from '../models/Proof.js';
 
-// Create a new proof
 export const createProof = async (req, res) => {
   try {
     const { type, content } = req.body;
 
-    // Validate required fields
     if (!type || !content) {
       return res.status(400).json({ message: 'Type and content are required' });
     }
