@@ -8,7 +8,6 @@ export const createProof = async (req, res) => {
       return res.status(400).json({ message: 'Type and content are required' });
     }
 
-    // Normalize type for case-insensitive comparison
     const normalizedType = type.trim().toLowerCase();
 
     // Check for existing proof with the same type (case-insensitive)
