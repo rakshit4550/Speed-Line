@@ -34,9 +34,9 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter,
-}).array('images', 5);
+}).array('images', 6);
 
 export const generatePreviewPDF = async (req, res) => {
   try {
@@ -86,7 +86,7 @@ export const generatePreviewPDF = async (req, res) => {
 
     console.log('Generating PDF...');
     const pdfBuffer = await page.pdf({
-      format: 'A4', 
+      format: 'A4',
       printBackground: true,
       margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
       preferCSSPageSize: true,
@@ -125,6 +125,8 @@ export const createClient = async (req, res) => {
         eventname,
         navigation,
         profitAndLoss,
+        navigation2, 
+        navigation2Images, 
       } = req.body;
 
       if (!user || !eventname || !navigation) {
@@ -162,6 +164,14 @@ export const createClient = async (req, res) => {
           }))
         : [];
 
+      let navigation2ImagesData = [];
+      if (navigation2Images && Array.isArray(navigation2Images)) {
+        navigation2ImagesData = navigation2Images.map((image) => ({
+          path: image.path,
+          filename: image.filename,
+        }));
+      }
+
       const client = new Client({
         agentname,
         whitelabel_user: whitelabelInstance._id,
@@ -174,6 +184,8 @@ export const createClient = async (req, res) => {
         navigation,
         profitAndLoss,
         images,
+        navigation2: navigation2 || undefined, // Set to undefined if not provided
+        navigation2Images: navigation2ImagesData.length > 0 ? navigation2ImagesData : undefined, // Set to undefined if empty
       });
 
       await client.save();
@@ -239,6 +251,8 @@ export const updateClient = async (req, res) => {
         eventname,
         navigation,
         profitAndLoss,
+        navigation2,
+        navigation2Images,
       } = req.body;
 
       let whitelabelId, proofId, sportId, marketId;
@@ -270,6 +284,14 @@ export const updateClient = async (req, res) => {
           }))
         : undefined;
 
+      let navigation2ImagesData = undefined;
+      if (navigation2Images && Array.isArray(navigation2Images)) {
+        navigation2ImagesData = navigation2Images.map((image) => ({
+          path: image.path,
+          filename: image.filename,
+        }));
+      }
+
       const updatedClient = await Client.findByIdAndUpdate(
         req.params.id,
         {
@@ -284,6 +306,8 @@ export const updateClient = async (req, res) => {
           navigation,
           profitAndLoss,
           images: images || undefined,
+          navigation2: navigation2 || undefined, 
+          navigation2Images: navigation2ImagesData || undefined, 
         },
         { new: true, runValidators: true }
       )
@@ -306,8 +330,19 @@ export const deleteClient = async (req, res) => {
     const client = await Client.findById(req.params.id);
     if (!client) return res.status(404).json({ message: 'Client not found' });
 
+    // Delete images if they exist
     if (client.images && client.images.length > 0) {
       client.images.forEach((image) => {
+        const filePath = path.resolve(image.path);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      });
+    }
+
+    // Delete navigation2Images if they exist
+    if (client.navigation2Images && client.navigation2Images.length > 0) {
+      client.navigation2Images.forEach((image) => {
         const filePath = path.resolve(image.path);
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
@@ -329,7 +364,7 @@ export const getAllWhitelabels = async (req, res) => {
       message: 'Whitelabels retrieved successfully',
       data: whitelabels,
     });
-  } catch (error) {
+  } catch (error)    {
     console.error('Get whitelabels error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }

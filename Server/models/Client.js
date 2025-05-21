@@ -94,6 +94,20 @@ const clientSchema = new mongoose.Schema({
       },
     },
   ],
+  navigation2: {
+    type: String,
+    trim: true,
+  },
+  navigation2Images: [
+    {
+      path: {
+        type: String,
+      },
+      filename: {
+        type: String,
+      },
+    },
+  ],
 });
 
 export default mongoose.model('Client', clientSchema);
