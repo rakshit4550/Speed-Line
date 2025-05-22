@@ -4,6 +4,7 @@ import Proof from '../models/Proof.js';
 import Sports from '../models/Sports.js';
 import Market from '../models/Market.js';
 
+
 const clientSchema = new mongoose.Schema({
   agentname: {
     type: String,
