@@ -1,9 +1,7 @@
-
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 
 const API_BASE_URL = 'http://localhost:2030/client';
 
-// Async thunks for API calls
 export const fetchClients = createAsyncThunk('clients/fetchClients', async () => {
   const response = await fetch(`${API_BASE_URL}/`);
   return await response.json();
@@ -17,8 +15,7 @@ export const fetchClientById = createAsyncThunk('clients/fetchClientById', async
 export const createClient = createAsyncThunk('clients/createClient', async (clientData) => {
   const response = await fetch(`${API_BASE_URL}/create`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(clientData),
+    body: clientData, // FormData is sent directly
   });
   return await response.json();
 });
@@ -26,8 +23,7 @@ export const createClient = createAsyncThunk('clients/createClient', async (clie
 export const updateClient = createAsyncThunk('clients/updateClient', async ({ id, clientData }) => {
   const response = await fetch(`${API_BASE_URL}/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(clientData),
+    body: clientData, // FormData is sent directly
   });
   return await response.json();
 });

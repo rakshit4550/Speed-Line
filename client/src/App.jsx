@@ -42,6 +42,7 @@ import SportsManagement from './pages/admin/SportsManagement';
 import ProofType from './pages/admin/ProofType';
 import MarketManager from './pages/admin/market';
 import ClientManager from './pages/admin/Client';
+import Report from './pages/admin/Report';
 
 
 function App() {
@@ -88,6 +89,12 @@ function App() {
             path="/clients"
             element={
                 <ClientManager />
+            }
+          />
+           <Route
+            path="/reports"
+            element={
+                <Report />
             }
           />
         </Routes>

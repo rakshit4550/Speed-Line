@@ -13,5 +13,3 @@ const sportsSchema = new mongoose.Schema({
 const Sports = mongoose.model('Sports', sportsSchema);
 
 export default Sports;
-
-

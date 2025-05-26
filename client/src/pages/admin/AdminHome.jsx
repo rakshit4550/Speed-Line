@@ -58,6 +58,11 @@ function AdminHome() {
         className="bg-white  border shadow-xl p-[30px]  text-black  box rounded-lg  font-bold text-[35px] cursor-pointer">
         Clients
         </Link>
+            <Link 
+        to="/reports"
+        className="bg-white  border shadow-xl p-[30px]  text-black  box rounded-lg  font-bold text-[35px] cursor-pointer">
+        REPORT
+        </Link>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { Link } from "react-router-dom";
 import Header from "../../components/admin/Header";
-import { FaPlus, FaEdit, FaTrash, FaEye } from "react-icons/fa";
+import { FaPlus, FaEdit, FaTrash, FaEye, FaSort, FaSortUp, FaSortDown } from "react-icons/fa";
 import {
   fetchWhitelabels,
   fetchWhitelabelById,
@@ -13,7 +13,6 @@ import {
   clearError,
 } from "../../redux/whitelabel/whitelabelSlice";
 
-// Constants for API and placeholder
 const API_BASE_URL = "http://localhost:2030";
 const DEFAULT_PLACEHOLDER = "/placeholder-logo.png";
 
@@ -32,9 +31,14 @@ const Whitelabel = () => {
     whitelabelUrl: "",
     logo: null,
   });
-
-  // Preview state
+  const [searchQuery, setSearchQuery] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
+  
+  // State for sorting and pagination
+  const [sortConfig, setSortConfig] = useState({ key: "", direction: "" });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [goToPage, setGoToPage] = useState(""); 
+  const itemsPerPage = 10;
 
   // Fetch whitelabels on mount
   useEffect(() => {
@@ -50,7 +54,7 @@ const Whitelabel = () => {
     }
   }, [open]);
 
-  // Handle success state to close modal and refresh list
+  // Handle success state
   useEffect(() => {
     if (success) {
       setOpen(false);
@@ -85,14 +89,12 @@ const Whitelabel = () => {
   const handleSubmit = useCallback(
     (e) => {
       e.preventDefault();
-
       const formattedData = {
         ...formData,
         hexacode: formData.hexacode.startsWith("#")
           ? formData.hexacode
           : `#${formData.hexacode}`,
       };
-
       if (isEditing) {
         dispatch(updateWhitelabel({ id: currentId, formData: formattedData }));
       } else {
@@ -116,11 +118,11 @@ const Whitelabel = () => {
     setIsEditing(true);
     setCurrentId(whitelabel._id);
     setFormData({
-      username: whitelabel.whitelabel_user,
-      user: whitelabel.user,
-      hexacode: whitelabel.hexacode,
-      whitelabelUrl: whitelabel.url,
-      logo: null, // Cannot pre-fill file input
+      username: whitelabel.whitelabel_user || "",
+      user: whitelabel.user || "",
+      hexacode: whitelabel.hexacode || "",
+      whitelabelUrl: whitelabel.url || "",
+      logo: null,
     });
     setOpen(true);
   }, []);
@@ -134,7 +136,6 @@ const Whitelabel = () => {
     [dispatch]
   );
 
-  // Handle preview click by fetching data from backend
   const handlePreview = useCallback(
     (id) => {
       dispatch(fetchWhitelabelById(id)).then(() => {
@@ -144,7 +145,125 @@ const Whitelabel = () => {
     [dispatch]
   );
 
-  // Memoized image URL formatter
+  const handleSearchChange = useCallback((e) => {
+    setSearchQuery(e.target.value);
+    setCurrentPage(1); // Reset to first page on search
+  }, []);
+
+  // Sorting function
+  const handleSort = useCallback((key) => {
+    setSortConfig((prev) => {
+      let direction = "asc";
+      if (prev.key === key && prev.direction === "asc") {
+        direction = "desc";
+      } else if (prev.key === key && prev.direction === "desc") {
+        direction = null;
+        key = null;
+      }
+      console.log(`Sorting by ${key || "none"} in ${direction || "none"} order`);
+      return { key, direction };
+    });
+  }, []);
+
+  // Filter and sort whitelabels
+  const filteredAndSortedWhitelabels = useMemo(() => {
+    console.log("Input whitelabels:", whitelabels);
+    let result = [...whitelabels];
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter((item) =>
+        [
+          item.whitelabel_user?.toLowerCase().trim() || "",
+          item.user?.toLowerCase().trim() || "",
+          item.url?.toLowerCase().trim() || "",
+        ].some((field) => field.includes(query))
+      );
+      console.log("Filtered results:", result);
+    }
+
+    // Apply sorting
+    if (sortConfig.key && sortConfig.direction) {
+      result.sort((a, b) => {
+        let aValue, bValue;
+
+        // Map fields to correct property names
+        if (sortConfig.key === "whitelabel_user") {
+          aValue = a.whitelabel_user || "";
+          bValue = b.whitelabel_user || "";
+        } else if (sortConfig.key === "user") {
+          aValue = a.user || "";
+          bValue = b.user || "";
+        } else if (sortConfig.key === "url") {
+          aValue = a.url || "";
+          bValue = b.url || "";
+        } else {
+          aValue = a[sortConfig.key] || "";
+          bValue = b[sortConfig.key] || "";
+        }
+
+        // Trim and ensure string conversion for consistent sorting
+        aValue = String(aValue).trim().toLowerCase();
+        bValue = String(bValue).trim().toLowerCase();
+
+        // Debug the values being compared
+        console.log(`Comparing ${sortConfig.key}: "${aValue}" vs "${bValue}"`);
+
+        // Alphanumeric sorting with localeCompare
+        if (sortConfig.direction === "asc") {
+          return aValue.localeCompare(bValue, undefined, { numeric: true, sensitivity: "base" });
+        } else {
+          return bValue.localeCompare(aValue, undefined, { numeric: true, sensitivity: "base" });
+        }
+      });
+      console.log("Sorted results:", result);
+    }
+
+    return result;
+  }, [whitelabels, searchQuery, sortConfig]);
+
+  // Pagination logic (only applied when no search query)
+  const totalItems = filteredAndSortedWhitelabels.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const displayedWhitelabels = useMemo(() => {
+    if (searchQuery.trim()) {
+      // Show all filtered and sorted results when searching
+      console.log("Displaying all filtered results:", filteredAndSortedWhitelabels);
+      return filteredAndSortedWhitelabels;
+    }
+    // Apply pagination when not searching
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginated = filteredAndSortedWhitelabels.slice(startIndex, startIndex + itemsPerPage);
+    console.log("Paginated results:", paginated);
+    return paginated;
+  }, [filteredAndSortedWhitelabels, currentPage, searchQuery]);
+
+  const handlePageChange = (page) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+      setGoToPage(""); // Clear the input after navigating
+    }
+  };
+
+  const handleGoToPage = useCallback(() => {
+    const pageNumber = parseInt(goToPage, 10);
+    if (!isNaN(pageNumber) && pageNumber >= 1 && pageNumber <= totalPages) {
+      handlePageChange(pageNumber);
+    } else {
+      alert(`Please enter a valid page number between 1 and ${totalPages}`);
+      setGoToPage("");
+    }
+  }, [goToPage, totalPages]);
+
+  const handleGoToPageChange = useCallback((e) => {
+    const value = e.target.value;
+    // Allow only numbers
+    if (/^\d*$/.test(value)) {
+      setGoToPage(value);
+    }
+  }, []);
+
   const getImageUrl = useMemo(() => {
     return (logoPath) => {
       if (!logoPath) {
@@ -166,15 +285,24 @@ const Whitelabel = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-bold">Whitelabel Management</h1>
-          <button
-            onClick={() => setOpen(true)}
-            className="bg-[#00008B] text-white cursor-pointer p-[10px] px-[20px] rounded-2xl text-[16px] font-bold flex justify-center items-center"
-          >
-            <span className="font-bold text-lg mr-1">
-              <FaPlus />
-            </span>
-            Add Whitelabel
-          </button>
+          <div className="flex items-center space-x-4">
+            <input
+              type="text"
+              placeholder="Search by Whitelabel, user, or URL"
+              value={searchQuery}
+              onChange={handleSearchChange}
+              className="px-4.5 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition w-68"
+            />
+            <button
+              onClick={() => setOpen(true)}
+              className="bg-[#00008B] text-white cursor-pointer p-[10px] px-[20px] rounded-2xl text-[16px] font-bold flex justify-center items-center"
+            >
+              <span className="font-bold text-lg mr-1">
+                <FaPlus />
+              </span>
+              Add Whitelabel
+            </button>
+          </div>
         </div>
 
         {/* Success/Error Messages */}
@@ -196,6 +324,13 @@ const Whitelabel = () => {
           </div>
         )}
 
+        {/* Search Results Count */}
+        {!loading && searchQuery.trim() && (
+          <div className="mb-4 text-gray-700">
+            {totalItems} {totalItems === 1 ? "data found" : "data found"}
+          </div>
+        )}
+
         {/* Whitelabel List */}
         {!loading && (
           <div className="bg-white shadow-md rounded-lg overflow-hidden">
@@ -205,17 +340,59 @@ const Whitelabel = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Logo
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                    onClick={() => handleSort("whitelabel_user")}
+                  >
                     Whitelabel User
+                    {sortConfig.key === "whitelabel_user" ? (
+                      sortConfig.direction === "asc" ? (
+                        <FaSortUp className="inline ml-1" />
+                      ) : sortConfig.direction === "desc" ? (
+                        <FaSortDown className="inline ml-1" />
+                      ) : (
+                        <FaSort className="inline ml-1" />
+                      )
+                    ) : (
+                      <FaSort className="inline ml-1" />
+                    )}
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                    onClick={() => handleSort("user")}
+                  >
                     User
+                    {sortConfig.key === "user" ? (
+                      sortConfig.direction === "asc" ? (
+                        <FaSortUp className="inline ml-1" />
+                      ) : sortConfig.direction === "desc" ? (
+                        <FaSortDown className="inline ml-1" />
+                      ) : (
+                        <FaSort className="inline ml-1" />
+                      )
+                    ) : (
+                      <FaSort className="inline ml-1" />
+                    )}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Color
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                    onClick={() => handleSort("url")}
+                  >
                     URL
+                    {sortConfig.key === "url" ? (
+                      sortConfig.direction === "asc" ? (
+                        <FaSortUp className="inline ml-1" />
+                      ) : sortConfig.direction === "desc" ? (
+                        <FaSortDown className="inline ml-1" />
+                      ) : (
+                        <FaSort className="inline ml-1" />
+                      )
+                    ) : (
+                      <FaSort className="inline ml-1" />
+                    )}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
@@ -223,8 +400,8 @@ const Whitelabel = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {whitelabels && whitelabels.length > 0 ? (
-                  whitelabels.map((item) => (
+                {displayedWhitelabels && displayedWhitelabels.length > 0 ? (
+                  displayedWhitelabels.map((item) => (
                     <tr key={item._id}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <Link to={`/whitelabel/${item._id}`}>
@@ -236,10 +413,10 @@ const Whitelabel = () => {
                         </Link>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {item.whitelabel_user}
+                        {item.whitelabel_user || "N/A"}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {item.user}
+                        {item.user || "N/A"}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
@@ -257,7 +434,7 @@ const Whitelabel = () => {
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:text-blue-900"
                         >
-                          {item.url}
+                          {item.url || "N/A"}
                         </a>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex">
@@ -297,6 +474,63 @@ const Whitelabel = () => {
                 )}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination Controls (only shown when no search query) */}
+        {!loading && !searchQuery.trim() && totalItems > itemsPerPage && (
+          <div className="flex flex-col items-end mt-4 space-y-2">
+            <div className="flex justify-between items-center w-full">
+              <div>
+                Showing {((currentPage - 1) * itemsPerPage) + 1} to{" "}
+                {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} entries
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <button
+                    key={page}
+                    onClick={() => handlePageChange(page)}
+                    className={`px-4 py-2 rounded-lg ${
+                      currentPage === page
+                        ? "bg-[#00008B] text-white"
+                        : "bg-gray-200 text-gray-700"
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+                <button
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+            {/* "Go to Page" Input and Button */}
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                value={goToPage}
+                onChange={handleGoToPageChange}
+                placeholder=""
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition w-24"
+              />
+              <button
+                onClick={handleGoToPage}
+                className="px-4 py-2 bg-[#00008B] text-white rounded-lg hover:bg-blue-900 transition"
+              >
+                Go
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -424,12 +658,11 @@ const Whitelabel = () => {
 
       {/* Preview Modal */}
       {previewOpen && currentWhitelabel && (
-        <div className="fixed inset-0 flex items-center justify-center bg-transparent ">
-          {/* main pages */}
-          <div className="bg-white w-[50vh] border mt-[20px] ">
+        <div className="fixed inset-0 flex items-center justify-center bg-transparent">
+          <div className="bg-white w-[50vh] border mt-[20px]">
             <header
               id="header"
-              className="header-footer flex items-center h-22 "
+              className="header-footer flex items-center h-22"
               style={{ backgroundColor: currentWhitelabel.hexacode }}
             >
               <img
@@ -438,23 +671,15 @@ const Whitelabel = () => {
                 alt="Client Logo"
                 className="h-[70px] pl-[20px]"
               />
-              {/* <select id="logoSelector"></select> */}
             </header>
-            {/* Main Content */}
             <main className="pt-[20px]">
               <div className="flex justify-between font-bold text-[12px] leading-[1.5] pl-[12px] pr-[12px] pb-[10px]">
-                <div className="">
-                  <h2>whitelabel user: {currentWhitelabel.user}</h2>
-                  <h2>User: {currentWhitelabel.user}</h2>
-                </div>
-                <div className="">
-                  <h2></h2>
-                </div>
                 <div>
-                  <h2></h2>
-                  <h2></h2>
-                  <h2></h2>
+                  <h2>Whitelabel User: {currentWhitelabel.whitelabel_user || "N/A"}</h2>
+                  <h2>User: {currentWhitelabel.user || "N/A"}</h2>
                 </div>
+                <div></div>
+                <div></div>
               </div>
               <div className="h-[50vh]"></div>
             </main>
@@ -463,30 +688,25 @@ const Whitelabel = () => {
               style={{ backgroundColor: currentWhitelabel.hexacode }}
               className="header-footer flex items-center h-[50px]"
             >
-              <div className="flex justify-between">
+              <div className="flex justify-between w-full">
                 <a
                   href={currentWhitelabel.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className=" text-amber-50 hover:text-blue-600 hover:underline mt-[20px] ml-[20px] text-[15px]"
+                  className="text-amber-50 hover:text-blue-600 hover:underline mt-[20px] ml-[20px] text-[15px]"
                 >
-                  {currentWhitelabel.url}
+                  {currentWhitelabel.url || "N/A"}
                 </a>
-                <div className="text-amber-50 hover:text-blue-600 hover:underline mt-[20px]  ml-[170px] text-[15px]">
-                  T&c Apply
+                <div className="text-amber-50 hover:text-blue-600 hover:underline mt-[20px] mr-[20px] text-[15px]">
+                  T&C Apply
                 </div>
               </div>
             </footer>
 
-            <div className="flex justify-between py-3 mr-2 ">
-              {/* <div className="col-span-2 text-gray-500 text-sm ml-2">
-                {currentWhitelabel.createdAt
-                  ? new Date(currentWhitelabel.createdAt).toLocaleString()
-                  : "N/A"}
-              </div> */}
+            <div className="flex justify-end py-3 mr-2">
               <button
                 onClick={() => setPreviewOpen(false)}
-                className=" hover:bg-gray-600 p-[10px] px-4 text-black rounded-lg text-end  bg-red-600 transition"
+                className="hover:bg-gray-600 p-[10px] px-4 text-white rounded-lg bg-red-600 transition"
               >
                 Close
               </button>
