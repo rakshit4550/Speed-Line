@@ -160,10 +160,10 @@ const ProofManager = () => {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Type
+                    Prrof Type
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Content
+                    Proof Content
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
@@ -229,7 +229,7 @@ const ProofManager = () => {
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Type
+                   Prrof Type
                   </label>
                   <input
                     type="text"
@@ -242,7 +242,7 @@ const ProofManager = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Content
+                   Proof Content(Accept Only HTML Code)
                   </label>
                   <textarea
                     name="content"
