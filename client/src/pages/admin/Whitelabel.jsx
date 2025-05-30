@@ -361,7 +361,7 @@ const Whitelabel = () => {
                     className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
                     onClick={() => handleSort("group")}
                   >
-                    Group
+                    WhatsApp Group
                     {sortConfig.key === "group" ? (
                       sortConfig.direction === "asc" ? (
                         <FaSortUp className="inline ml-1" />
@@ -558,7 +558,7 @@ const Whitelabel = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Group
+                  WhatsApp Group
                 </label>
                 <input
                   type="text"
@@ -611,7 +611,7 @@ const Whitelabel = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Logo
+                  Logo (Size: 902*271, Background: Transparent, ImageFile: .PNG)
                 </label>
                 <input
                   type="file"
