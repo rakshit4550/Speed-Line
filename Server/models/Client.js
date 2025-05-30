@@ -82,6 +82,11 @@ const clientSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
+  proofMaker: {
+    type: String,
+    required: true,
+    trim: true,
+  },
   images: [
     {
       path: {

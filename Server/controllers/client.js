@@ -23,20 +23,27 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|gif/;
+  // Allow jpeg, jpg, png, and gif
+  const allowedTypes = /\.(jpe?g|png|gif)$/i;
   const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
+  const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif'];
+  const mimetype = allowedMimeTypes.includes(file.mimetype.toLowerCase());
+
   if (extname && mimetype) {
     return cb(null, true);
   }
-  cb(new Error('Only images (jpeg, jpg, png, gif) are allowed'));
+  console.error(`Invalid file: ${file.originalname}, MIME: ${file.mimetype}`);
+  cb(new Error('Only images (jpeg, jpg, png, gif) are allowed'), false);
 };
 
 const upload = multer({
   storage,
-  limits: { fileSize: 100 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB limit
   fileFilter,
-}).array('images', 6);
+}).fields([
+  { name: 'images', maxCount: 6 },
+  { name: 'navigation2Images', maxCount: 6 },
+]);
 
 export const generatePreviewPDF = async (req, res) => {
   try {
@@ -125,22 +132,28 @@ export const createClient = async (req, res) => {
         eventname,
         navigation,
         profitAndLoss,
-        navigation2, 
-        navigation2Images, 
+        proofMaker,
+        navigation2,
       } = req.body;
 
-      if (!user || !eventname || !navigation) {
+      if (!user || !eventname || !navigation || !proofMaker || !agentname || !amount || !prooftype || !sportname || !marketname) {
         return res.status(400).json({
           message: 'Missing required fields',
           details: {
             user: !user ? 'User is required' : undefined,
             eventname: !eventname ? 'Event name is required' : undefined,
             navigation: !navigation ? 'Navigation is required' : undefined,
+            proofMaker: !proofMaker ? 'Proof Maker is required' : undefined,
+            agentname: !agentname ? 'Agent name is required' : undefined,
+            amount: !amount ? 'Amount is required' : undefined,
+            prooftype: !prooftype ? 'Proof type is required' : undefined,
+            sportname: !sportname ? 'Sport name is required' : undefined,
+            marketname: !marketname ? 'Market name is required' : undefined,
           },
         });
       }
 
-      const whitelabelInstance = await whitelabel.findOne({ whitelabel_user: whitelabel_user });
+      const whitelabelInstance = await whitelabel.findOne({ whitelabel_user });
       const proof = await ProofType.findOne({ type: prooftype });
       const sport = await Sport.findOne({ sportsName: sportname });
       const market = await Market.findOne({ marketName: marketname });
@@ -157,20 +170,19 @@ export const createClient = async (req, res) => {
         });
       }
 
-      const images = req.files
-        ? req.files.map((file) => ({
+      const images = req.files['images']
+        ? req.files['images'].map((file) => ({
             path: file.path,
             filename: file.filename,
           }))
         : [];
 
-      let navigation2ImagesData = [];
-      if (navigation2Images && Array.isArray(navigation2Images)) {
-        navigation2ImagesData = navigation2Images.map((image) => ({
-          path: image.path,
-          filename: image.filename,
-        }));
-      }
+      const navigation2Images = req.files['navigation2Images']
+        ? req.files['navigation2Images'].map((file) => ({
+            path: file.path,
+            filename: file.filename,
+          }))
+        : [];
 
       const client = new Client({
         agentname,
@@ -183,15 +195,16 @@ export const createClient = async (req, res) => {
         eventname,
         navigation,
         profitAndLoss,
+        proofMaker,
         images,
-        navigation2: navigation2 || undefined, // Set to undefined if not provided
-        navigation2Images: navigation2ImagesData.length > 0 ? navigation2ImagesData : undefined, // Set to undefined if empty
+        navigation2: navigation2 || undefined,
+        navigation2Images: navigation2Images.length > 0 ? navigation2Images : undefined,
       });
 
       await client.save();
 
       const populatedClient = await Client.findById(client._id)
-        .populate('whitelabel_user', 'whitelabel_user')
+        .populate('whitelabel_user', 'whitelabel_user group logo hexacode url')
         .populate('prooftype', 'type content')
         .populate('sportname', 'sportsName')
         .populate('marketname', 'marketName');
@@ -207,7 +220,7 @@ export const createClient = async (req, res) => {
 export const getAllClients = async (req, res) => {
   try {
     const clients = await Client.find()
-      .populate('whitelabel_user', 'whitelabel_user user logo hexacode url')
+      .populate('whitelabel_user', 'whitelabel_user group logo hexacode url')
       .populate('prooftype', 'type content')
       .populate('sportname', 'sportsName')
       .populate('marketname', 'marketName');
@@ -220,7 +233,7 @@ export const getAllClients = async (req, res) => {
 export const getClientById = async (req, res) => {
   try {
     const client = await Client.findById(req.params.id)
-      .populate('whitelabel_user', 'whitelabel_user user logo hexacode url')
+      .populate('whitelabel_user', 'whitelabel_user group logo hexacode url')
       .populate('prooftype', 'type content')
       .populate('sportname', 'sportsName')
       .populate('marketname', 'marketName');
@@ -251,13 +264,13 @@ export const updateClient = async (req, res) => {
         eventname,
         navigation,
         profitAndLoss,
+        proofMaker,
         navigation2,
-        navigation2Images,
       } = req.body;
 
       let whitelabelId, proofId, sportId, marketId;
       if (whitelabel_user) {
-        const whitelabelInstance = await whitelabel.findOne({ whitelabel_user: whitelabel_user });
+        const whitelabelInstance = await whitelabel.findOne({ whitelabel_user });
         if (!whitelabelInstance) return res.status(400).json({ message: 'Invalid whitelabel_user: User not found' });
         whitelabelId = whitelabelInstance._id;
       }
@@ -277,20 +290,19 @@ export const updateClient = async (req, res) => {
         marketId = market._id;
       }
 
-      const images = req.files
-        ? req.files.map((file) => ({
+      const images = req.files['images']
+        ? req.files['images'].map((file) => ({
             path: file.path,
             filename: file.filename,
           }))
         : undefined;
 
-      let navigation2ImagesData = undefined;
-      if (navigation2Images && Array.isArray(navigation2Images)) {
-        navigation2ImagesData = navigation2Images.map((image) => ({
-          path: image.path,
-          filename: image.filename,
-        }));
-      }
+      const navigation2Images = req.files['navigation2Images']
+        ? req.files['navigation2Images'].map((file) => ({
+            path: file.path,
+            filename: file.filename,
+          }))
+        : undefined;
 
       const updatedClient = await Client.findByIdAndUpdate(
         req.params.id,
@@ -305,13 +317,14 @@ export const updateClient = async (req, res) => {
           eventname,
           navigation,
           profitAndLoss,
+          proofMaker,
           images: images || undefined,
-          navigation2: navigation2 || undefined, 
-          navigation2Images: navigation2ImagesData || undefined, 
+          navigation2: navigation2 || undefined,
+          navigation2Images: navigation2Images || undefined,
         },
         { new: true, runValidators: true }
       )
-        .populate('whitelabel_user', 'whitelabel_user user logo hexacode url')
+        .populate('whitelabel_user', 'whitelabel_user group logo hexacode url')
         .populate('prooftype', 'type content')
         .populate('sportname', 'sportsName')
         .populate('marketname', 'marketName');
@@ -330,7 +343,6 @@ export const deleteClient = async (req, res) => {
     const client = await Client.findById(req.params.id);
     if (!client) return res.status(404).json({ message: 'Client not found' });
 
-    // Delete images if they exist
     if (client.images && client.images.length > 0) {
       client.images.forEach((image) => {
         const filePath = path.resolve(image.path);
@@ -340,7 +352,6 @@ export const deleteClient = async (req, res) => {
       });
     }
 
-    // Delete navigation2Images if they exist
     if (client.navigation2Images && client.navigation2Images.length > 0) {
       client.navigation2Images.forEach((image) => {
         const filePath = path.resolve(image.path);
@@ -364,7 +375,7 @@ export const getAllWhitelabels = async (req, res) => {
       message: 'Whitelabels retrieved successfully',
       data: whitelabels,
     });
-  } catch (error)    {
+  } catch (error) {
     console.error('Get whitelabels error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }

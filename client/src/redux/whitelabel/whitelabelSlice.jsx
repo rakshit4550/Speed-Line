@@ -41,7 +41,7 @@ export const createWhitelabel = createAsyncThunk(
       // Use FormData to handle file uploads
       const data = new FormData();
       data.append("whitelabel_user", formData.username);
-      data.append("user", formData.user);
+      data.append("group", formData.group);
       data.append("hexacode", formData.hexacode);
       data.append("url", formData.whitelabelUrl);
 
@@ -70,7 +70,7 @@ export const updateWhitelabel = createAsyncThunk(
     try {
       const data = new FormData();
       data.append("whitelabel_user", formData.username);
-      data.append("user", formData.user);
+      data.append("group", formData.group);
       data.append("hexacode", formData.hexacode);
       data.append("url", formData.whitelabelUrl);
 

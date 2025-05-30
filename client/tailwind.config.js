@@ -1,4 +1,4 @@
-// tailwind.config.js
+tailwind.config.js
 module.exports = {
   content: ['./src/**/*.{js,ts,jsx,tsx,html}'], // adjust as needed
   theme: {
@@ -6,6 +6,7 @@ module.exports = {
       fontFamily: {
         amaranth: ['Amaranth', 'sans-serif'],
       },
+ 
     },
   },
   plugins: [],

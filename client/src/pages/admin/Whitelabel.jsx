@@ -26,7 +26,7 @@ const Whitelabel = () => {
   const [currentId, setCurrentId] = useState(null);
   const [formData, setFormData] = useState({
     username: "",
-    user: "",
+    group: "",
     hexacode: "",
     whitelabelUrl: "",
     logo: null,
@@ -107,7 +107,7 @@ const Whitelabel = () => {
   const handleReset = useCallback(() => {
     setFormData({
       username: "",
-      user: "",
+      group: "",
       hexacode: "",
       whitelabelUrl: "",
       logo: null,
@@ -119,7 +119,7 @@ const Whitelabel = () => {
     setCurrentId(whitelabel._id);
     setFormData({
       username: whitelabel.whitelabel_user || "",
-      user: whitelabel.user || "",
+      group: whitelabel.group || "",
       hexacode: whitelabel.hexacode || "",
       whitelabelUrl: whitelabel.url || "",
       logo: null,
@@ -176,7 +176,7 @@ const Whitelabel = () => {
       result = result.filter((item) =>
         [
           item.whitelabel_user?.toLowerCase().trim() || "",
-          item.user?.toLowerCase().trim() || "",
+          item.group?.toLowerCase().trim() || "",
           item.url?.toLowerCase().trim() || "",
         ].some((field) => field.includes(query))
       );
@@ -192,9 +192,9 @@ const Whitelabel = () => {
         if (sortConfig.key === "whitelabel_user") {
           aValue = a.whitelabel_user || "";
           bValue = b.whitelabel_user || "";
-        } else if (sortConfig.key === "user") {
-          aValue = a.user || "";
-          bValue = b.user || "";
+        } else if (sortConfig.key === "group") {
+          aValue = a.group || "";
+          bValue = b.group || "";
         } else if (sortConfig.key === "url") {
           aValue = a.url || "";
           bValue = b.url || "";
@@ -288,7 +288,7 @@ const Whitelabel = () => {
           <div className="flex items-center space-x-4">
             <input
               type="text"
-              placeholder="Search by Whitelabel, user, or URL"
+              placeholder="Search by Whitelabel, group, or URL"
               value={searchQuery}
               onChange={handleSearchChange}
               className="px-4.5 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition w-68"
@@ -359,10 +359,10 @@ const Whitelabel = () => {
                   </th>
                   <th
                     className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort("user")}
+                    onClick={() => handleSort("group")}
                   >
-                    User
-                    {sortConfig.key === "user" ? (
+                    Group
+                    {sortConfig.key === "group" ? (
                       sortConfig.direction === "asc" ? (
                         <FaSortUp className="inline ml-1" />
                       ) : sortConfig.direction === "desc" ? (
@@ -416,7 +416,7 @@ const Whitelabel = () => {
                         {item.whitelabel_user || "N/A"}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {item.user || "N/A"}
+                        {item.group || "N/A"}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
@@ -558,12 +558,12 @@ const Whitelabel = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  User
+                  Group
                 </label>
                 <input
                   type="text"
-                  name="user"
-                  value={formData.user}
+                  name="group"
+                  value={formData.group}
                   onChange={handleChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
                   required
@@ -601,7 +601,7 @@ const Whitelabel = () => {
                   Whitelabel URL
                 </label>
                 <input
-                  type="url"
+                  type="text"
                   name="whitelabelUrl"
                   value={formData.whitelabelUrl}
                   onChange={handleChange}
@@ -676,7 +676,7 @@ const Whitelabel = () => {
               <div className="flex justify-between font-bold text-[12px] leading-[1.5] pl-[12px] pr-[12px] pb-[10px]">
                 <div>
                   <h2>Whitelabel User: {currentWhitelabel.whitelabel_user || "N/A"}</h2>
-                  <h2>User: {currentWhitelabel.user || "N/A"}</h2>
+                  <h2>Group: {currentWhitelabel.group || "N/A"}</h2>
                 </div>
                 <div></div>
                 <div></div>
@@ -719,3 +719,4 @@ const Whitelabel = () => {
 };
 
 export default Whitelabel;
+
