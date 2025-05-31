@@ -57,15 +57,115 @@ export async function importReports(req, res) {
 
     for (const [index, reportData] of reportsData.entries()) {
       try {
+        // Validate required fields
+        const requiredFields = {
+          userName: reportData.userName ? String(reportData.userName).trim() : '',
+          agent: reportData.agent ? String(reportData.agent).trim() : '',
+          sportName: reportData.sportName ? String(reportData.sportName).trim() : '',
+          eventName: reportData.eventName ? String(reportData.eventName).trim() : '',
+          marketName: reportData.marketName ? String(reportData.marketName).trim() : '',
+          catchBy: reportData.catchBy ? String(reportData.catchBy).trim() : '',
+          proofType: reportData.proofType ? String(reportData.proofType).trim() : '',
+          proofStatus: reportData.proofStatus ? String(reportData.proofStatus).trim() : '',
+        };
+        const missingFields = Object.entries(requiredFields)
+          .filter(([key, value]) => !value)
+          .map(([key]) => key);
+        if (missingFields.length > 0) {
+          importErrors.push({
+            msg: `Missing required fields: ${missingFields.join(", ")}`,
+            sheetName: reportData.sheetName,
+            rowIndex: reportData.rowIndex,
+          });
+          continue;
+        }
+
+        // Validate allowed values
+        const validSportNames = [
+          'Cricket', 'Kabaddi', 'Socceraa', 'Tennis', 'Casino', 'Original',
+          'All Caino', 'Int Casino', 'Basketball', 'Multi Sports'
+        ];
+        const validMarketNames = ['Match Odds', 'Moneyline', 'Multi Market'];
+        const validCatchBy = ['Niket', 'Dhruv', 'Jaydeep', 'Krunal', 'Sachin', 'Vivek', 'Rahul', 'Harsh B.'];
+        const validProofTypes = [
+          'Live Line Betting or Ground Line Betting',
+          'Live Line Betting, Ground Line and Group Betting',
+          'Odds Manipulating or Odds Hedging',
+          'Odds Manipulating or Odds Hedging and Group Betting',
+          'Offside Goal and Goal Cancel'
+        ];
+        const validProofStatus = ['Submitted', 'Not Submitted'];
+
+        const invalidFields = [];
+        if (!validSportNames.includes(requiredFields.sportName)) {
+          invalidFields.push(`sportName (must be one of: ${validSportNames.join(", ")})`);
+        }
+        if (!validMarketNames.includes(requiredFields.marketName)) {
+          invalidFields.push(`marketName (must be one of: ${validMarketNames.join(", ")})`);
+        }
+        if (!validCatchBy.includes(requiredFields.catchBy)) {
+          invalidFields.push(`catchBy (must be one of: ${validCatchBy.join(", ")})`);
+        }
+        if (!validProofTypes.includes(requiredFields.proofType)) {
+          invalidFields.push(`proofType (must be one of: ${validProofTypes.join(", ")})`);
+        }
+        if (!validProofStatus.includes(requiredFields.proofStatus)) {
+          invalidFields.push(`proofStatus (must be one of: ${validProofStatus.join(", ")})`);
+        }
+        if (invalidFields.length > 0) {
+          importErrors.push({
+            msg: `Invalid field values: ${invalidFields.join(", ")}`,
+            sheetName: reportData.sheetName,
+            rowIndex: reportData.rowIndex,
+          });
+          continue;
+        }
+
+        // Validate betDetails
+        if (!Array.isArray(reportData.betDetails) || reportData.betDetails.length === 0) {
+          importErrors.push({
+            msg: `betDetails must be a non-empty array`,
+            sheetName: reportData.sheetName,
+            rowIndex: reportData.rowIndex,
+          });
+          continue;
+        }
+
+        for (const [betIndex, detail] of reportData.betDetails.entries()) {
+          if (!detail.odds || isNaN(Number(detail.odds)) || Number(detail.odds) === 0) {
+            importErrors.push({
+              msg: `Invalid or missing odds in betDetails[${betIndex}]`,
+              sheetName: reportData.sheetName,
+              rowIndex: reportData.rowIndex,
+            });
+            continue;
+          }
+          if (!detail.stack || isNaN(Number(detail.stack)) || Number(detail.stack) === 0) {
+            importErrors.push({
+              msg: `Invalid or missing stack in betDetails[${betIndex}]`,
+              sheetName: reportData.sheetName,
+              rowIndex: reportData.rowIndex,
+            });
+            continue;
+          }
+          if (!detail.time || !/^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/i.test(detail.time)) {
+            importErrors.push({
+              msg: `Invalid or missing time in betDetails[${betIndex}] (must be in 12-hour format, e.g., 12:00:00 AM)`,
+              sheetName: reportData.sheetName,
+              rowIndex: reportData.rowIndex,
+            });
+            continue;
+          }
+        }
+
         // Duplicate checking
         const normalizedDate = normalizeDate(reportData.date);
-        const normalizedUserName = reportData.userName ? String(reportData.userName).trim().toLowerCase() : '';
-        const normalizedAgent = reportData.agent ? String(reportData.agent).trim().toLowerCase() : '';
-        const normalizedSportName = reportData.sportName ? String(reportData.sportName).trim().toLowerCase() : '';
-        const normalizedEventName = reportData.eventName ? String(reportData.eventName).trim().toLowerCase() : '';
-        const normalizedMarketName = reportData.marketName ? String(reportData.marketName).trim().toLowerCase() : '';
+        const normalizedUserName = requiredFields.userName.toLowerCase();
+        const normalizedAgent = requiredFields.agent.toLowerCase();
+        const normalizedSportName = requiredFields.sportName.toLowerCase();
+        const normalizedEventName = requiredFields.eventName.toLowerCase();
+        const normalizedMarketName = requiredFields.marketName.toLowerCase();
 
-        // Check for duplicate based on normalized fields
         const existingReport = await Report.findOne({
           date: normalizedDate,
           userName: { $regex: `^${normalizedUserName}$`, $options: 'i' },
@@ -77,7 +177,7 @@ export async function importReports(req, res) {
 
         if (existingReport) {
           importErrors.push({
-            msg: `Duplicate report`,
+            msg: `Duplicate report found`,
             sheetName: reportData.sheetName,
             rowIndex: reportData.rowIndex,
           });
@@ -87,36 +187,23 @@ export async function importReports(req, res) {
         const report = new Report({
           ...reportData,
           date: normalizedDate,
-          userName: reportData.userName ? String(reportData.userName).trim() : '',
-          agent: reportData.agent ? String(reportData.agent).trim() : '',
+          userName: requiredFields.userName,
+          agent: requiredFields.agent,
           origin: reportData.origin ? String(reportData.origin).trim() : '',
-          sportName: reportData.sportName ? String(reportData.sportName).trim() : '',
-          eventName: reportData.eventName ? String(reportData.eventName).trim() : '',
-          marketName: reportData.marketName ? String(reportData.marketName).trim() : '',
+          sportName: requiredFields.sportName,
+          eventName: requiredFields.eventName,
+          marketName: requiredFields.marketName,
           acBalance: Number(reportData.acBalance) || 0,
           afterVoidBalance: Number(reportData.afterVoidBalance) || 0,
           pl: Number(reportData.pl) || 0,
-          betDetails: Array.isArray(reportData.betDetails) && reportData.betDetails.length > 0
-            ? reportData.betDetails.map((detail) => ({
-                odds: Number(detail.odds) || 0,
-                stack: Number(detail.stack) || 0,
-                time: convert12To24Hour(detail.time || '12:00:00 AM'),
-              }))
-            : [{ odds: 0, stack: 0, time: '00:00:00' }],
-          catchBy: reportData.catchBy ? String(reportData.catchBy).trim() : '',
-          proofType: reportData.proofType &&
-            [
-              'Live Line Betting or Ground Line Betting',
-              'Live Line Betting, Ground Line and Group Betting',
-              'Odds Manipulating or Odds Hedging',
-              'Odds Manipulating or Odds Hedging and Group Betting',
-              'Offside Goal and Goal Cancel',
-            ].includes(reportData.proofType)
-            ? reportData.proofType
-            : 'Live Line Betting or Ground Line Betting',
-          proofStatus: reportData.proofStatus && ['Submitted', 'Not Submitted'].includes(reportData.proofStatus)
-            ? reportData.proofStatus
-            : 'Not Submitted',
+          betDetails: reportData.betDetails.map((detail) => ({
+            odds: Number(detail.odds) || 0,
+            stack: Number(detail.stack) || 0,
+            time: convert12To24Hour(detail.time || '12:00:00 AM'),
+          })),
+          catchBy: requiredFields.catchBy,
+          proofType: requiredFields.proofType,
+          proofStatus: requiredFields.proofStatus,
           remark: reportData.remark ? String(reportData.remark).trim() : '',
         });
 
@@ -146,7 +233,7 @@ export async function importReports(req, res) {
     return res.status(201).json({
       message: savedReports.length > 0
         ? `${savedReports.length} Report(s) Imported Successfully from ${uniqueSheets} sheets`
-        : `No new reports imported from ${uniqueSheets} sheets (all entries were duplicates)`,
+        : `No new reports imported from ${uniqueSheets} sheets (all entries were duplicates or invalid)`,
       data: savedReports,
       errors: importErrors.length > 0 ? importErrors : undefined,
     });
@@ -159,6 +246,7 @@ export async function importReports(req, res) {
     });
   }
 };
+
 
 export const exportReportsToExcel = async (req, res) => {
   try {

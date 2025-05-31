@@ -377,7 +377,7 @@ const SportsManager = () => {
 
         {/* Edit/Add Modal */}
         {open && (
-          <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+          <div className="fixed inset-0 flex items-center justify-center bg-transparent bg-opacity-50 z-50">
             <div className="bg-white p-8 rounded-2xl w-full max-w-md shadow-xl">
               <h2 className="text-2xl font-semibold text-gray-800 mb-6">
                 {isEditing ? "Edit Sport" : "Add Sport"}

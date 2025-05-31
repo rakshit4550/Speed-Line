@@ -428,209 +428,280 @@ const Report = () => {
     }
   };
 
-  const handleImportExcel = (event) => {
-    setImportError(null);
-    setImportSuccess(null);
-    const file = event.target.files[0];
-    if (!file) {
-      setImportError("Please select a file to import");
-      return;
-    }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: "array", raw: false, dateNF: "yyyy-mm-dd" });
-        let allReports = [];
-        let sheetErrors = [];
-        let totalSheetsProcessed = 0;
-        let totalReportsImported = 0;
 
-        workbook.SheetNames.forEach((sheetName, sheetIndex) => {
-          totalSheetsProcessed++;
-          const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet, { raw: false });
+const handleImportExcel = (event) => {
+  setImportError(null);
+  setImportSuccess(null);
+  const file = event.target.files[0];
+  if (!file) {
+    setImportError("Please select a file to import");
+    return;
+  }
 
-          if (jsonData.length === 0) {
-            sheetErrors.push(`Sheet "${sheetName}" is empty`);
-            return;
-          }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: "array", raw: false, dateNF: "yyyy-mm-dd" });
+      let allReports = [];
+      let sheetErrors = [];
+      let totalSheetsProcessed = 0;
+      let totalReportsImported = 0;
+      let blankRows = [];
 
-          const sheetReports = jsonData
-            .map((row, rowIndex) => {
-              let dateValue = row["Date"] ? String(row["Date"]).trim() : "";
-              let normalizedDate = normalizeDate(dateValue);
+      workbook.SheetNames.forEach((sheetName, sheetIndex) => {
+        totalSheetsProcessed++;
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { raw: false, blankrows: true });
 
-              const betDetailsArray = [];
-              const odds = row["Odds"] ? String(row["Odds"]).split("\n").map((val) => val.trim()) : ["0.00"];
-              const stack = row["Stack"] ? String(row["Stack"]).split("\n").map((val) => val.trim()) : ["0.00"];
-              const time = row["Time"] ? String(row["Time"]).split("\n").map((val) => val.trim()) : ["12:00:00 AM"];
+        if (jsonData.length === 0) {
+          sheetErrors.push(`Sheet "${sheetName}" is empty`);
+          return;
+        }
 
-              const maxLength = Math.max(odds.length, stack.length, time.length);
-              for (let i = 0; i < maxLength; i++) {
-                let timeValue = time[i] || "12:00:00 AM";
-                if (timeValue && !validate12HourTime(timeValue)) {
-                  try {
-                    const date = new Date(`1970-01-01T${timeValue}Z`);
-                    if (!isNaN(date.getTime())) {
-                      const hours = date.getHours();
-                      const minutes = date.getMinutes();
-                      const seconds = date.getSeconds();
-                      const period = hours >= 12 ? "PM" : "AM";
-                      const hour = hours % 12 === 0 ? 12 : hours % 12;
-                      timeValue = `${hour.toString().padStart(2, "0")}:${minutes
-                        .toString()
-                        .padStart(2, "0")}:${seconds.toString().padStart(2, "0")} ${period}`;
-                    } else {
-                      sheetErrors.push(
-                        `Invalid time in sheet "${sheetName}", row ${rowIndex + 2}, bet ${i + 1}: "${timeValue}"`
-                      );
-                      timeValue = "12:00:00 AM";
-                    }
-                  } catch (err) {
+        const sheetReports = jsonData
+          .map((row, rowIndex) => {
+            // Check for completely blank row
+            const isRowBlank = Object.values(row).every(
+              (value) => value === undefined || value === null || String(value).trim() === ""
+            );
+           
+
+            // Define required fields
+            const requiredFields = [
+              "Date",
+              "User Name",
+              "Agent",
+              "Sport Name",
+              "Event Name",
+              "Market Name",
+              "Catch By",
+              "Odds",
+              "Stack",
+              "Time",
+              "Proof Type",
+              "Proof Status",
+            ];
+            // Check for blank or missing required fields
+            const missingFields = requiredFields.filter(
+              (field) => !row[field] || String(row[field]).trim() === ""
+            );
+            if (missingFields.length > 0) {
+              sheetErrors.push(
+                `Sheet "${sheetName}", row ${rowIndex + 2}: Missing or blank required fields: ${missingFields.join(", ")}`
+              );
+              return null;
+            }
+
+            let dateValue = row["Date"] ? String(row["Date"]).trim() : "";
+            let normalizedDate = normalizeDate(dateValue);
+
+            const betDetailsArray = [];
+            const odds = row["Odds"] ? String(row["Odds"]).split("\n").map((val) => val.trim()) : ["0.00"];
+            const stack = row["Stack"] ? String(row["Stack"]).split("\n").map((val) => val.trim()) : ["0.00"];
+            const time = row["Time"] ? String(row["Time"]).split("\n").map((val) => val.trim()) : ["12:00:00 AM"];
+
+            const maxLength = Math.max(odds.length, stack.length, time.length);
+            for (let i = 0; i < maxLength; i++) {
+              let timeValue = time[i] || "12:00:00 AM";
+              if (timeValue && !validate12HourTime(timeValue)) {
+                try {
+                  const date = new Date(`1970-01-01T${timeValue}Z`);
+                  if (!isNaN(date.getTime())) {
+                    const hours = date.getHours();
+                    const minutes = date.getMinutes();
+                    const seconds = date.getSeconds();
+                    const period = hours >= 12 ? "PM" : "AM";
+                    const hour = hours % 12 === 0 ? 12 : hours % 12;
+                    timeValue = `${hour.toString().padStart(2, "0")}:${minutes
+                      .toString()
+                      .padStart(2, "0")}:${seconds.toString().padStart(2, "0")} ${period}`;
+                  } else {
                     sheetErrors.push(
                       `Invalid time in sheet "${sheetName}", row ${rowIndex + 2}, bet ${i + 1}: "${timeValue}"`
                     );
                     timeValue = "12:00:00 AM";
                   }
+                } catch (err) {
+                  sheetErrors.push(
+                    `Invalid time in sheet "${sheetName}", row ${rowIndex + 2}, bet ${i + 1}: "${timeValue}"`
+                  );
+                  timeValue = "12:00:00 AM";
                 }
-
-                betDetailsArray.push({
-                  odds: parseFloat(odds[i] || "0.00") || 0,
-                  stack: parseFloat(stack[i] || "0.00") || 0,
-                  time: timeValue,
-                });
               }
 
-              const userName = row["User Name"] ? String(row["User Name"]).trim() : "";
-              const agent = row["Agent"] ? String(row["Agent"]).trim() : "";
-              const sportName = row["Sport Name"] ? String(row["Sport Name"]).trim() : "";
-              const eventName = row["Event Name"] ? String(row["Event Name"]).trim() : "";
-              const marketName = row["Market Name"] ? String(row["Market Name"]).trim() : "";
-              const catchBy = row["Catch By"] ? String(row["Catch By"]).trim() : "";
-              const proofType = row["Proof Type"]
-                ? String(row["Proof Type"]).trim()
-                : "Live Line Betting or Ground Line Betting";
-              const proofStatus = row["Proof Status"] ? String(row["Proof Status"]).trim() : "Not Submitted";
+              betDetailsArray.push({
+                odds: parseFloat(odds[i] || "0.00") || 0,
+                stack: parseFloat(stack[i] || "0.00") || 0,
+                time: timeValue,
+              });
+            }
 
-              if (
-                !userName ||
-                !agent ||
-                !sportName ||
-                !sportNameOptions.includes(sportName) ||
-                !eventName ||
-                !marketName ||
-                !marketNameOptions.includes(marketName) ||
-                !catchBy ||
-                !catchByOptions.includes(catchBy) ||
-                betDetailsArray.length === 0 ||
-                betDetailsArray.some(
-                  (detail) => detail.odds === 0 || detail.stack === 0 || !validate12HourTime(detail.time)
-                ) ||
-                !proofTypeOptions.includes(proofType) ||
-                !proofStatusOptions.includes(proofStatus)
-              ) {
-                sheetErrors.push(
-                  `Invalid or missing required fields in sheet "${sheetName}", row ${rowIndex + 2}. Ensure User Name, Agent, valid Sport Name, Event Name, valid Market Name, valid Catch By, valid Bet Details (odds, stack, time in 12-hour format), valid Proof Type, and valid Proof Status are provided.`
+            const userName = row["User Name"] ? String(row["User Name"]).trim() : "";
+            const agent = row["Agent"] ? String(row["Agent"]).trim() : "";
+            const sportName = row["Sport Name"] ? String(row["Sport Name"]).trim() : "";
+            const eventName = row["Event Name"] ? String(row["Event Name"]).trim() : "";
+            const marketName = row["Market Name"] ? String(row["Market Name"]).trim() : "";
+            const catchBy = row["Catch By"] ? String(row["Catch By"]).trim() : "";
+            const proofType = row["Proof Type"]
+              ? String(row["Proof Type"]).trim()
+              : "Live Line Betting or Ground Line Betting";
+            const proofStatus = row["Proof Status"] ? String(row["Proof Status"]).trim() : "Not Submitted";
+
+            // Validate required fields against allowed values
+            if (
+              !userName ||
+              !agent ||
+              !sportName ||
+              !sportNameOptions.includes(sportName) ||
+              !eventName ||
+              !marketName ||
+              !marketNameOptions.includes(marketName) ||
+              !catchBy ||
+              !catchByOptions.includes(catchBy) ||
+              betDetailsArray.length === 0 ||
+              betDetailsArray.some(
+                (detail) => detail.odds === 0 || detail.stack === 0 || !validate12HourTime(detail.time)
+              ) ||
+              !proofTypeOptions.includes(proofType) ||
+              !proofStatusOptions.includes(proofStatus)
+            ) {
+              const invalidFields = [];
+              if (!userName) invalidFields.push("User Name");
+              if (!agent) invalidFields.push("Agent");
+              if (!sportName || !sportNameOptions.includes(sportName)) invalidFields.push(`Sport Name (must be one of: ${sportNameOptions.join(", ")})`);
+              if (!eventName) invalidFields.push("Event Name");
+              if (!marketName || !marketNameOptions.includes(marketName)) invalidFields.push(`Market Name (must be one of: ${marketNameOptions.join(", ")})`);
+              if (!catchBy || !catchByOptions.includes(catchBy)) invalidFields.push(`Catch By (must be one of: ${catchByOptions.join(", ")})`);
+              if (betDetailsArray.length === 0 || betDetailsArray.some((detail) => detail.odds === 0 || detail.stack === 0 || !validate12HourTime(detail.time))) {
+                invalidFields.push("Bet Details (odds, stack, time in 12-hour format)");
+              }
+              if (!proofTypeOptions.includes(proofType)) invalidFields.push(`Proof Type (must be one of: ${proofTypeOptions.join(", ")})`);
+              if (!proofStatusOptions.includes(proofStatus)) invalidFields.push(`Proof Status (must be one of: ${proofStatusOptions.join(", ")})`);
+
+              sheetErrors.push(
+                `Invalid or missing required fields in sheet "${sheetName}", row ${rowIndex + 2}: ${invalidFields.join(", ")}`
+              );
+              return null;
+            }
+
+            return {
+              date: normalizedDate,
+              userName,
+              agent,
+              origin: row["Origin"] ? String(row["Origin"]).trim() : "",
+              sportName,
+              eventName,
+              marketName,
+              acBalance: parseFloat(row["Account Balance"]) || 0,
+              afterVoidBalance: parseFloat(row["After Void Balance"]) || 0,
+              pl: parseFloat(row["P&L"]) || 0,
+              betDetails: betDetailsArray,
+              catchBy,
+              proofType,
+              proofStatus,
+              remark: row["Remark"] ? String(row["Remark"]).trim() : "",
+              sheetName,
+              rowIndex: rowIndex + 2,
+            };
+          })
+          .filter((report) => report !== null);
+
+        totalReportsImported += sheetReports.length;
+        allReports = [...allReports, ...sheetReports];
+      });
+
+      if (allReports.length > 70) {
+        setImportError(`Cannot import more than 70 reports at a time across ${totalSheetsProcessed} sheets`);
+        return;
+      }
+
+      if (allReports.length === 0) {
+        const errorMessages = [
+          ...blankRows.map(msg => `Blank rows detected: ${msg}`),
+          ...sheetErrors.map(msg => `Invalid data: ${msg}`),
+          "No valid reports found in the Excel file."
+        ];
+        setImportError(errorMessages.length > 0 ? errorMessages.map(msg => `- ${msg}`).join("\n") : "No valid reports found in the Excel file.");
+        return;
+      }
+
+      dispatch(importReports(allReports))
+        .then((action) => {
+          if (action.meta.requestStatus === "fulfilled") {
+            dispatch(fetchReports());
+            if (action.payload && Array.isArray(action.payload.data)) {
+              if (action.payload.data.length === 0) {
+                setImportSuccess(
+                  `No new reports imported from ${totalSheetsProcessed} sheets. All entries were duplicates or invalid.`
                 );
-                return null;
-              }
-
-              return {
-                date: normalizedDate,
-                userName,
-                agent,
-                origin: row["Origin"] ? String(row["Origin"]).trim() : "",
-                sportName,
-                eventName,
-                marketName,
-                acBalance: parseFloat(row["Account Balance"]) || 0,
-                afterVoidBalance: parseFloat(row["After Void Balance"]) || 0,
-                pl: parseFloat(row["P&L"]) || 0,
-                betDetails: betDetailsArray,
-                catchBy,
-                proofType,
-                proofStatus,
-                remark: row["Remark"] ? String(row["Remark"]).trim() : "",
-                sheetName, // Add sheet name for tracking
-                rowIndex: rowIndex + 2, // Add row index for tracking
-              };
-            })
-            .filter((report) => report !== null);
-
-          totalReportsImported += sheetReports.length;
-          allReports = [...allReports, ...sheetReports];
-        });
-
-        if (allReports.length > 70) {
-          setImportError(`Cannot import more than 70 reports at a time across ${totalSheetsProcessed} sheets`);
-          return;
-        }
-
-        if (allReports.length === 0) {
-          setImportError(`No valid reports found in the Excel file across ${totalSheetsProcessed} sheets. Errors: ${sheetErrors.join(", ")}`);
-          return;
-        }
-
-        dispatch(importReports(allReports))
-          .then((action) => {
-            if (action.meta.requestStatus === "fulfilled") {
-              dispatch(fetchReports());
-              if (action.payload && Array.isArray(action.payload.data)) {
-                if (action.payload.data.length === 0) {
-                  setImportSuccess(
-                    `No new reports imported from ${totalSheetsProcessed} sheets. All entries were duplicates based on Date, User Name, Agent, Sport Name, Event Name, and Market Name.`
-                  );
-                } else {
-                  setImportSuccess(
-                    `${action.payload.data.length} report(s) imported successfully from ${totalSheetsProcessed} sheets`
-                  );
-                }
-                if (action.payload.errors && action.payload.errors.length > 0) {
-                  setImportError(
-                    `Some reports were not imported: ${action.payload.errors
-                      .map((err) => `Sheet "${err.sheetName}", row ${err.rowIndex}: ${err.msg}`)
-                      .join(", ")}`
-                  );
-                } else if (sheetErrors.length > 0) {
-                  setImportError(`Some rows were skipped due to invalid data: ${sheetErrors.join(", ")}`);
-                } else {
-                  setImportError(null);
-                }
               } else {
-                setImportError("Unexpected server response format. Please try again or check server logs.");
+                setImportSuccess(
+                  `${action.payload.data.length} report(s) imported successfully from ${totalSheetsProcessed} sheets`
+                );
+              }
+              const errorMessages = [];
+              if (action.payload.errors && action.payload.errors.length > 0) {
+                errorMessages.push(...action.payload.errors.map(err => `Sheet "${err.sheetName}", row ${err.rowIndex}: ${err.msg}`));
+              }
+              if (sheetErrors.length > 0) {
+                errorMessages.push(...sheetErrors.map(msg => `Invalid data: ${msg}`));
+              }
+              if (blankRows.length > 0) {
+                errorMessages.push(...blankRows.map(msg => `Blank rows detected: ${msg}`));
+                
+                
+              }
+            
+              if (errorMessages.length > 0) {
+                setImportError(`Errors during import from ${totalSheetsProcessed} sheets:\n${errorMessages.map(msg => `- ${msg}`).join("\n")}`);
+              } else {
+                setImportError(null);
               }
             } else {
-              let errorMessage = "Failed to save imported reports";
-              if (action.payload?.message) {
-                errorMessage = action.payload.message;
-                if (action.payload.errors) {
-                  errorMessage += ": " + action.payload.errors.map((err) => `Sheet "${err.sheetName}", row ${err.rowIndex}: ${err.msg}`).join(", ");
-                }
-              } else if (action.error?.message) {
-                errorMessage = action.error.message;
-              }
-              setImportError(errorMessage);
+              setImportError("Unexpected server response format. Please try again or check server logs.");
             }
-          })
-          .catch((error) => {
-            console.error("Error during import dispatch:", error);
-            setImportError(`Failed to import reports from ${totalSheetsProcessed} sheets due to a server error: ${error.message}`);
-          });
-      } catch (error) {
-        console.error("Error importing Excel file:", error);
-        setImportError(
-          `Failed to process the Excel file across ${totalSheetsProcessed} sheets. Ensure it is in the correct format with valid dates, required fields, valid Proof Type, and valid time in 12-hour format (e.g., 12:00:00 AM).`
-        );
+          } else {
+            let errorMessages = ["Failed to save imported reports"];
+            if (action.payload?.message) {
+              errorMessages = [action.payload.message];
+              if (action.payload.errors) {
+                errorMessages.push(...action.payload.errors.map(err => `Sheet "${err.sheetName}", row ${err.rowIndex}: ${err.msg}`));
+              }
+            } else if (action.error?.message) {
+              errorMessages = [action.error.message];
+            }
+            if (blankRows.length > 0) {
+              errorMessages.push(...blankRows.map(msg => `Blank rows detected: ${msg}`));
+            }
+            setImportError(`Failed to import reports from ${totalSheetsProcessed} sheets:\n${errorMessages.map(msg => `- ${msg}`).join("\n")}`);
+          }
+        })
+        .catch((error) => {
+          console.error("Error during import dispatch:", error);
+          let errorMessages = [`Failed to import reports from ${totalSheetsProcessed} sheets due to a server error: ${error.message}`];
+          if (blankRows.length > 0) {
+            errorMessages.push(...blankRows.map(msg => `Blank rows detected: ${msg}`));
+          }
+          setImportError(errorMessages.map(msg => `- ${msg}`).join("\n"));
+        });
+    } catch (error) {
+      console.error("Error importing Excel file:", error);
+      let errorMessages = [
+        `Failed to process the Excel file across ${totalSheetsProcessed} sheets. Ensure it is in the correct format with valid dates, required fields, valid Proof Type, and valid time in 12-hour format (e.g., 12:00:00 AM).`
+      ];
+      if (blankRows.length > 0) {
+        errorMessages.push(...blankRows.map(msg => `Blank rows detected: ${msg}`));
       }
-    };
-    reader.onerror = () => {
-      setImportError("Error reading the file. Please try again with a valid Excel file.");
-    };
-    reader.readAsArrayBuffer(file);
+      setImportError(errorMessages.map(msg => `- ${msg}`).join("\n"));
+    }
   };
-
+  reader.onerror = () => {
+    setImportError("Error reading the file. Please try again with a valid Excel file.");
+  };
+  reader.readAsArrayBuffer(file);
+};
 
   const resetFilters = () => {
     setFilterData({
