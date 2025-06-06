@@ -1,0 +1,4847 @@
+import mongoose from 'mongoose';
+
+const betDetailSchema = new mongoose.Schema({
+  odds: { type: Number, required: true },
+  stack: { type: Number, required: true },
+  time: { type: String, required: true } // Stored in 24-hour format (HH:mm:ss), but API expects 12-hour format (HH:mm:ss AM/PM)
+});
+
+const reportSchema = new mongoose.Schema({
+  date: { type: Date, required: true },
+  userName: { type: String, required: true },
+  agent: { type: String, required: true },
+  origin: { type: String, required: true },
+  sportName: { 
+    type: String, 
+    required: true,
+    enum: [
+      'Cricket',
+      'Kabaddi',
+      'Socceraa',
+      'Tennis',
+      'Casino',
+      'Original',
+      'All Caino',
+      'Int Casino',
+      'Basketball',
+      'Multi Sports'
+    ]
+  },
+  eventName: { type: String, required: true },
+  marketName: { 
+    type: String, 
+    required: true,
+    enum: [
+      'Match Odds',
+      'Moneyline',
+      'Multi Market'
+    ]
+  },
+  multiSport: {
+    type: String,
+    enum: [
+      '',
+      'Cricket',
+      'Kabaddi',
+      'Socceraa',
+      'Tennis',
+      'Casino',
+      'Original',
+      'All Caino',
+      'Int Casino',
+      'Basketball',
+      'Multi Sports'
+    ],
+    default: ''
+  },
+  multiEvent: { type: String, default: '' },
+  multiMarket: {
+    type: String,
+    enum: [
+      '',
+      'Match Odds',
+      'Moneyline',
+      'Multi Market'
+    ],
+    default: ''
+  },
+  acBalance: { type: Number, required: true },
+  afterVoidBalance: { type: Number, required: true },
+  pl: { type: Number, required: true }, 
+  betDetails: [betDetailSchema], 
+  catchBy: { 
+    type: String, 
+    required: true,
+    enum: [
+      'Niket',
+      'Dhruv',
+      'Jaydeep',
+      'Krunal',
+      'Sachin',
+      'Vivek',
+      'Rahul',
+      'Harsh B.'
+    ]
+  },
+  proofType: { 
+    type: String, 
+    required: true, 
+    enum: [
+      'Live Line Betting or Ground Line Betting',
+      'Live Line Betting, Ground Line and Group Betting',
+      'Odds Manipulating or Odds Hedging',
+      'Odds Manipulating or Odds Hedging and Group Betting',
+      'Offside Goal and Goal Cancel'
+    ], 
+    default: 'Live Line Betting or Ground Line Betting' 
+  },
+  proofStatus: { 
+    type: String, 
+    enum: ['Submitted', 'Not Submitted'], 
+    default: 'Not Submitted' 
+  },
+  remark: { type: String }
+});
+
+export default mongoose.model('Report', reportSchema);
+and 
+import { body, validationResult } from 'express-validator';
+import ExcelJS from 'exceljs';
+import mongoose from 'mongoose';
+import Report from '../models/Report.js';
+
+// convert 12-hour time to 24-hour time
+function convert12To24Hour(time12) {
+  if (!time12) return '00:00:00';
+  const regex = /^(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i;
+  if (!regex.test(time12)) return '00:00:00';
+
+  const [, hours, minutes, seconds, period] = time12.match(regex);
+  let hour = parseInt(hours, 10);
+  const minute = parseInt(minutes, 10);
+  const second = parseInt(seconds, 10);
+
+  if (period.toUpperCase() === 'PM' && hour < 12) {
+    hour += 12;
+  } else if (period.toUpperCase() === 'AM' && hour === 12) {
+    hour = 0;
+  }
+
+  return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:${second.toString().padStart(2, '0')}`;
+}
+
+// convert 24-hour time to 12-hour time
+function convert24To12Hour(time24) {
+  if (!time24 || !/^\d{2}:\d{2}:\d{2}$/.test(time24)) return '12:00:00 AM';
+  const [hours, minutes, seconds] = time24.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const hour = hours % 12 === 0 ? 12 : hours % 12;
+  return `${hour.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')} ${period}`;
+}
+
+// Normalize date 
+function normalizeDate(date) {
+  const parsedDate = new Date(date);
+  if (isNaN(parsedDate.getTime())) {
+    return new Date().toISOString().split('T')[0] + 'T00:00:00.000Z';
+  }
+  return new Date(parsedDate.setUTCHours(0, 0, 0, 0)).toISOString();
+}
+
+export async function importReports(req, res) {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    console.warn('Validation errors in importReports:', errors.array());
+    return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+  }
+
+  try {
+    const reportsData = req.body.slice(0, 70); // Limit 70 entries
+    console.log(`Processing ${reportsData.length} reports for import`);
+    const savedReports = [];
+    const importErrors = [];
+    const uniqueSheets = new Set(reportsData.map(report => report.sheetName)).size;
+
+    for (const [index, reportData] of reportsData.entries()) {
+      try {
+        // Validate required fields
+        const requiredFields = {
+          userName: reportData.userName ? String(reportData.userName).trim() : '',
+          agent: reportData.agent ? String(reportData.agent).trim() : '',
+          sportName: reportData.sportName ? String(reportData.sportName).trim() : '',
+          eventName: reportData.eventName ? String(reportData.eventName).trim() : '',
+          marketName: reportData.marketName ? String(reportData.marketName).trim() : '',
+          catchBy: reportData.catchBy ? String(reportData.catchBy).trim() : '',
+          proofType: reportData.proofType ? String(reportData.proofType).trim() : '',
+          proofStatus: reportData.proofStatus ? String(reportData.proofStatus).trim() : '',
+        };
+        const missingFields = Object.entries(requiredFields)
+          .filter(([key, value]) => !value)
+          .map(([key]) => key);
+        if (missingFields.length > 0) {
+          importErrors.push({
+            msg: `Missing required fields: ${missingFields.join(", ")}`,
+            sheetName: reportData.sheetName,
+            rowIndex: reportData.rowIndex,
+          });
+          continue;
+        }
+
+        // Validate allowed values
+        const validSportNames = [
+          'Cricket', 'Kabaddi', 'Socceraa', 'Tennis', 'Casino', 'Original',
+          'All Caino', 'Int Casino', 'Basketball', 'Multi Sports'
+        ];
+        const validMarketNames = ['Match Odds', 'Moneyline', 'Multi Market'];
+        const validCatchBy = ['Niket', 'Dhruv', 'Jaydeep', 'Krunal', 'Sachin', 'Vivek', 'Rahul', 'Harsh B.'];
+        const validProofTypes = [
+          'Live Line Betting or Ground Line Betting',
+          'Live Line Betting, Ground Line and Group Betting',
+          'Odds Manipulating or Odds Hedging',
+          'Odds Manipulating or Odds Hedging and Group Betting',
+          'Offside Goal and Goal Cancel'
+        ];
+        const validProofStatus = ['Submitted', 'Not Submitted'];
+        const validMultiSports = ['', ...validSportNames];
+        const validMultiMarkets = ['', ...validMarketNames];
+
+        const invalidFields = [];
+        if (!validSportNames.includes(requiredFields.sportName)) {
+          invalidFields.push(`sportName (must be one of: ${validSportNames.join(", ")})`);
+        }
+        if (!validMarketNames.includes(requiredFields.marketName)) {
+          invalidFields.push(`marketName (must be one of: ${validMarketNames.join(", ")})`);
+        }
+        if (!validCatchBy.includes(requiredFields.catchBy)) {
+          invalidFields.push(`catchBy (must be one of: ${validCatchBy.join(", ")})`);
+        }
+        if (!validProofTypes.includes(requiredFields.proofType)) {
+          invalidFields.push(`proofType (must be one of: ${validProofTypes.join(", ")})`);
+        }
+        if (!validProofStatus.includes(requiredFields.proofStatus)) {
+          invalidFields.push(`proofStatus (must be one of: ${validProofStatus.join(", ")})`);
+        }
+        if (reportData.multiSport && !validMultiSports.includes(reportData.multiSport)) {
+          invalidFields.push(`multiSport (must be one of: ${validMultiSports.join(", ")})`);
+        }
+        if (reportData.multiMarket && !validMultiMarkets.includes(reportData.multiMarket)) {
+          invalidFields.push(`multiMarket (must be one of: ${validMultiMarkets.join(", ")})`);
+        }
+        if (invalidFields.length > 0) {
+          importErrors.push({
+            msg: `Invalid field values: ${invalidFields.join(", ")}`,
+            sheetName: reportData.sheetName,
+            rowIndex: reportData.rowIndex,
+          });
+          continue;
+        }
+
+        // Validate betDetails
+        if (!Array.isArray(reportData.betDetails) || reportData.betDetails.length === 0) {
+          importErrors.push({
+            msg: `betDetails must be a non-empty array`,
+            sheetName: reportData.sheetName,
+            rowIndex: reportData.rowIndex,
+          });
+          continue;
+        }
+
+        for (const [betIndex, detail] of reportData.betDetails.entries()) {
+          if (!detail.odds || isNaN(Number(detail.odds)) || Number(detail.odds) === 0) {
+            importErrors.push({
+              msg: `Invalid or missing odds in betDetails[${betIndex}]`,
+              sheetName: reportData.sheetName,
+              rowIndex: reportData.rowIndex,
+            });
+            continue;
+          }
+          if (!detail.stack || isNaN(Number(detail.stack)) || Number(detail.stack) === 0) {
+            importErrors.push({
+              msg: `Invalid or missing stack in betDetails[${betIndex}]`,
+              sheetName: reportData.sheetName,
+              rowIndex: reportData.rowIndex,
+            });
+            continue;
+          }
+          if (!detail.time || !/^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/i.test(detail.time)) {
+            importErrors.push({
+              msg: `Invalid or missing time in betDetails[${betIndex}] (must be in 12-hour format, e.g., 12:00:00 AM)`,
+              sheetName: reportData.sheetName,
+              rowIndex: reportData.rowIndex,
+            });
+            continue;
+          }
+        }
+
+        // Duplicate checking
+        const normalizedDate = normalizeDate(reportData.date);
+        const normalizedUserName = requiredFields.userName.toLowerCase();
+        const normalizedAgent = requiredFields.agent.toLowerCase();
+        const normalizedSportName = requiredFields.sportName.toLowerCase();
+        const normalizedEventName = requiredFields.eventName.toLowerCase();
+        const normalizedMarketName = requiredFields.marketName.toLowerCase();
+
+        const existingReport = await Report.findOne({
+          date: normalizedDate,
+          userName: { $regex: `^${normalizedUserName}$`, $options: 'i' },
+          agent: { $regex: `^${normalizedAgent}$`, $options: 'i' },
+          sportName: { $regex: `^${normalizedSportName}$`, $options: 'i' },
+          eventName: { $regex: `^${normalizedEventName}$`, $options: 'i' },
+          marketName: { $regex: `^${normalizedMarketName}$`, $options: 'i' },
+        });
+
+        if (existingReport) {
+          importErrors.push({
+            msg: `Duplicate report found`,
+            sheetName: reportData.sheetName,
+            rowIndex: reportData.rowIndex,
+          });
+          continue;
+        }
+
+        const report = new Report({
+          ...reportData,
+          date: normalizedDate,
+          userName: requiredFields.userName,
+          agent: requiredFields.agent,
+          origin: reportData.origin ? String(reportData.origin).trim() : '',
+          sportName: requiredFields.sportName,
+          eventName: requiredFields.eventName,
+          marketName: requiredFields.marketName,
+          multiSport: reportData.multiSport ? String(reportData.multiSport).trim() : '',
+          multiEvent: reportData.multiEvent ? String(reportData.multiEvent).trim() : '',
+          multiMarket: reportData.multiMarket ? String(reportData.multiMarket).trim() : '',
+          acBalance: Number(reportData.acBalance) || 0,
+          afterVoidBalance: Number(reportData.afterVoidBalance) || 0,
+          pl: Number(reportData.pl) || 0,
+          betDetails: reportData.betDetails.map((detail) => ({
+            odds: Number(detail.odds) || 0,
+            stack: Number(detail.stack) || 0,
+            time: convert12To24Hour(detail.time || '12:00:00 AM'),
+          })),
+          catchBy: requiredFields.catchBy,
+          proofType: requiredFields.proofType,
+          proofStatus: requiredFields.proofStatus,
+          remark: reportData.remark ? String(reportData.remark).trim() : '',
+        });
+
+        const savedReport = await report.save();
+        savedReport.betDetails = savedReport.betDetails.map(detail => ({
+          ...detail._doc,
+          time: convert24To12Hour(detail.time),
+        }));
+        savedReports.push(savedReport);
+      } catch (err) {
+        importErrors.push({
+          msg: `Failed to process report: ${err.message}`,
+          sheetName: reportData.sheetName,
+          rowIndex: reportData.rowIndex,
+        });
+      }
+    }
+
+    return res.status(201).json({
+      message: savedReports.length > 0
+        ? `${savedReports.length} Report(s) Imported Successfully from ${uniqueSheets} sheets`
+        : `No new reports imported from ${uniqueSheets} sheets (all entries were duplicates or invalid)`,
+      data: savedReports,
+      errors: importErrors.length > 0 ? importErrors : undefined,
+    });
+  } catch (error) {
+    console.error('Import reports error:', error);
+    res.status(500).json({
+      message: 'Error importing reports',
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+    });
+  }
+};
+
+export const exportReportsToExcel = async (req, res) => {
+  try {
+    console.log('Starting exportReportsToExcel');
+
+    const {
+      startDate,
+      endDate,
+      userName,
+      agent,
+      origin,
+      sportName,
+      eventName,
+      marketName,
+      multiSport,
+      multiEvent,
+      multiMarket,
+      acBalanceMin,
+      acBalanceMax,
+      afterVoidBalanceMin,
+      afterVoidBalanceMax,
+      plMin,
+      plMax,
+      oddsMin,
+      oddsMax,
+      stackMin,
+      stackMax,
+      catchBy,
+      proofType,
+      proofStatus,
+      remark,
+      searchTerm,
+      sortKey,
+      sortDirection,
+    } = req.query;
+
+    const query = {};
+
+    if (startDate || endDate) {
+      query.date = {};
+      if (startDate) query.date.$gte = new Date(startDate);
+      if (endDate) query.date.$lte = new Date(endDate);
+    }
+
+    if (userName) query.userName = { $regex: userName, $options: 'i' };
+    if (agent) query.agent = { $regex: agent, $options: 'i' };
+    if (origin) query.origin = { $regex: origin, $options: 'i' };
+    if (sportName) query.sportName = { $regex: sportName, $options: 'i' };
+    if (eventName) query.eventName = { $regex: eventName, $options: 'i' };
+    if (marketName) query.marketName = { $regex: marketName, $options: 'i' };
+    if (multiSport) query.multiSport = { $regex: multiSport, $options: 'i' };
+    if (multiEvent) query.multiEvent = { $regex: multiEvent, $options: 'i' };
+    if (multiMarket) query.multiMarket = { $regex: multiMarket, $options: 'i' };
+    if (catchBy) query.catchBy = { $regex: catchBy, $options: 'i' };
+    if (proofType) query.proofType = proofType;
+    if (proofStatus) query.proofStatus = proofStatus;
+    if (remark) query.remark = { $regex: remark, $options: 'i' };
+
+    if (acBalanceMin || acBalanceMax) {
+      query.acBalance = {};
+      if (acBalanceMin) query.acBalance.$gte = Number(acBalanceMin);
+      if (acBalanceMax) query.acBalance.$lte = Number(acBalanceMax);
+    }
+    if (afterVoidBalanceMin || afterVoidBalanceMax) {
+      query.afterVoidBalance = {};
+      if (afterVoidBalanceMin) query.afterVoidBalance.$gte = Number(afterVoidBalanceMin);
+      if (afterVoidBalanceMax) query.afterVoidBalance.$lte = Number(afterVoidBalanceMax);
+    }
+    if (plMin || plMax) {
+      query.pl = {};
+      if (plMin) query.pl.$gte = Number(plMin);
+      if (plMax) query.pl.$lte = Number(plMax);
+    }
+
+    if (oddsMin || oddsMax) {
+      query['betDetails.odds'] = {};
+      if (oddsMin) query['betDetails.odds'].$gte = Number(oddsMin);
+      if (oddsMax) query['betDetails.odds'].$lte = Number(oddsMax);
+    }
+    if (stackMin || stackMax) {
+      query['betDetails.stack'] = {};
+      if (stackMin) query['betDetails.stack'].$gte = Number(stackMin);
+      if (stackMax) query['betDetails.stack'].$lte = Number(stackMax);
+    }
+
+    if (searchTerm) {
+      query.$or = [
+        { userName: { $regex: searchTerm, $options: 'i' } },
+        { agent: { $regex: searchTerm, $options: 'i' } },
+        { origin: { $regex: searchTerm, $options: 'i' } },
+        { sportName: { $regex: searchTerm, $options: 'i' } },
+        { eventName: { $regex: searchTerm, $options: 'i' } },
+        { marketName: { $regex: searchTerm, $options: 'i' } },
+        { multiSport: { $regex: searchTerm, $options: 'i' } },
+        { multiEvent: { $regex: searchTerm, $options: 'i' } },
+        { multiMarket: { $regex: searchTerm, $options: 'i' } },
+        { catchBy: { $regex: searchTerm, $options: 'i' } },
+        { proofType: { $regex: searchTerm, $options: 'i' } },
+        { proofStatus: { $regex: searchTerm, $options: 'i' } },
+        { remark: { $regex: searchTerm, $options: 'i' } },
+      ];
+    }
+
+    const validSortKeys = [
+      'date',
+      'userName',
+      'agent',
+      'origin',
+      'sportName',
+      'eventName',
+      'marketName',
+      'multiSport',
+      'multiEvent',
+      'multiMarket',
+      'acBalance',
+      'afterVoidBalance',
+      'pl',
+      'catchBy',
+      'proofType',
+      'proofStatus',
+      'remark',
+    ];
+    let sortOptions = {};
+    if (sortKey && validSortKeys.includes(sortKey)) {
+      const direction = sortDirection === 'desc' ? -1 : 1;
+      sortOptions[sortKey] = direction;
+    } else {
+      sortOptions.date = -1;
+    }
+
+    const reports = await Report.find(query).sort(sortOptions).lean();
+    console.log('Reports fetched:', reports.length);
+
+    if (!reports || reports.length === 0) {
+      return res.status(404).json({ message: 'No reports found matching the criteria' });
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Reports');
+    console.log('Workbook and worksheet created');
+
+    worksheet.views = [
+      {
+        state: 'frozen',
+        xSplit: 0,
+        ySplit: 1,
+      },
+    ];
+
+    worksheet.columns = [
+      { header: 'Date', key: 'date', width: 15 },
+      { header: 'User Name', key: 'userName', width: 20 },
+      { header: 'Agent', key: 'agent', width: 20 },
+      { header: 'Origin', key: 'origin', width: 15 },
+      { header: 'Sport Name', key: 'sportName', width: 20 },
+      { header: 'Event Name', key: 'eventName', width: 20 },
+      { header: 'Market Name', key: 'marketName', width: 20 },
+      { header: 'Multi Sport', key: 'multiSport', width: 20 },
+      { header: 'Multi Event', key: 'multiEvent', width: 20 },
+      { header: 'Multi Market', key: 'multiMarket', width: 20 },
+      { header: 'Account Balance', key: 'acBalance', width: 15 },
+      { header: 'After Void Balance', key: 'afterVoidBalance', width: 15 },
+      { header: 'P&L', key: 'pl', width: 15 },
+      { header: 'Odds', key: 'odds', width: 20 },
+      { header: 'Stack', key: 'stack', width: 20 },
+      { header: 'Time', key: 'time', width: 20 },
+      { header: 'Catch By', key: 'catchBy', width: 20 },
+      { header: 'Proof Type', key: 'proofType', width: 30 },
+      { header: 'Proof Status', key: 'proofStatus', width: 20 },
+      { header: 'Remark', key: 'remark', width: 20 },
+    ];
+
+    worksheet.getColumn('odds').alignment = { wrapText: true };
+    worksheet.getColumn('stack').alignment = { wrapText: true };
+    worksheet.getColumn('time').alignment = { wrapText: true };
+    worksheet.getColumn('proofType').alignment = { wrapText: true };
+    worksheet.getColumn('proofStatus').alignment = { wrapText: true };
+    worksheet.getColumn('multiSport').alignment = { wrapText: true };
+    worksheet.getColumn('multiEvent').alignment = { wrapText: true };
+    worksheet.getColumn('multiMarket').alignment = { wrapText: true };
+
+    reports.forEach((report) => {
+      try {
+        const betDetails = Array.isArray(report.betDetails) ? report.betDetails : [];
+        const odds = betDetails
+          .map((detail) => (typeof detail.odds === 'number' ? Number(detail.odds).toFixed(2) : '0.00'))
+          .join('\n');
+        const stack = betDetails
+          .map((detail) => (typeof detail.stack === 'number' ? Number(detail.stack).toFixed(2) : '0.00'))
+          .join('\n');
+        const time = betDetails
+          .map((detail) => convert24To12Hour(detail.time || '00:00:00'))
+          .join('\n');
+
+        const normalizedDate = report.date
+          ? new Date(new Date(report.date).setUTCHours(0, 0, 0, 0)).toLocaleDateString('en-GB')
+          : '';
+
+        const row = worksheet.addRow({
+          date: normalizedDate,
+          userName: report.userName || '',
+          agent: report.agent || '',
+          origin: report.origin || '',
+          sportName: report.sportName || '',
+          eventName: report.eventName || '',
+          marketName: report.marketName || '',
+          multiSport: report.multiSport || '',
+          multiEvent: report.multiEvent || '',
+          multiMarket: report.multiMarket || '',
+          acBalance: typeof report.acBalance === 'number' ? Number(report.acBalance).toFixed(2) : '0.00',
+          afterVoidBalance: typeof report.afterVoidBalance === 'number' ? Number(report.afterVoidBalance).toFixed(2) : '0.00',
+          pl: typeof report.pl === 'number' ? Number(report.pl).toFixed(2) : '0.00',
+          odds: odds || '0.00',
+          stack: stack || '0.00',
+          time: time || '12:00:00 AM',
+          catchBy: report.catchBy || '',
+          proofType: report.proofType || 'Live Line Betting or Ground Line Betting',
+          proofStatus: report.proofStatus || 'Not Submitted',
+          remark: report.remark || '',
+        });
+
+        if (betDetails.length > 1) {
+          row.height = betDetails.length * 15;
+        }
+      } catch (err) {
+        console.error(`Error adding row for report ${report._id}:`, err);
+      }
+    });
+    console.log('Rows added to worksheet');
+
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFD3D3D3' },
+    };
+    console.log('Header styled');
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename=reports.xlsx');
+
+    await workbook.xlsx.write(res);
+    console.log('Excel file written to response');
+    res.end();
+  } catch (error) {
+    console.error('Error in exportReportsToExcel:', error);
+    res.status(500).json({ message: 'Server error while exporting reports', error: error.message });
+  }
+};
+
+export const validateReport = [
+  body('date').isISO8601().toDate().withMessage('Date must be a valid ISO 8601 date'),
+  body('userName').isString().notEmpty().withMessage('userName is required'),
+  body('agent').isString().notEmpty().withMessage('Agent is required'),
+  body('origin').optional().isString().withMessage('origin must be a string if provided'),
+  body('sportName')
+    .isString()
+    .notEmpty()
+    .isIn([
+      'Cricket',
+      'Kabaddi',
+      'Socceraa',
+      'Tennis',
+      'Casino',
+      'Original',
+      'All Caino',
+      'Int Casino',
+      'Basketball',
+      'Multi Sports'
+    ])
+    .withMessage('sportName'),
+  body('eventName').isString().notEmpty().withMessage('eventName is required'),
+  body('marketName')
+    .isString()
+    .notEmpty()
+    .isIn(['Match Odds', 'Moneyline', 'Multi Market'])
+    .withMessage('marketName'),
+  body('multiSport')
+    .optional()
+    .isString()
+    .isIn([
+      '',
+      'Cricket',
+      'Kabaddi',
+      'Socceraa',
+      'Tennis',
+      'Casino',
+      'Original',
+      'All Caino',
+      'Int Casino',
+      'Basketball',
+      'Multi Sports'
+    ])
+    .withMessage('multiSport'),
+  body('multiEvent')
+    .optional()
+    .isString()
+    .withMessage('multiEvent must be a string if provided'),
+  body('multiMarket')
+    .optional()
+    .isString()
+    .isIn(['', 'Match Odds', 'Moneyline', 'Multi Market'])
+    .withMessage('multiMarket'),
+  body('acBalance').isFloat().withMessage('acBalance must be a number'),
+  body('afterVoidBalance').isFloat().withMessage('afterVoidBalance must be a number'),
+  body('pl').isFloat().withMessage('P&L must be a number (positive or negative)'),
+  body('betDetails').isArray({ min: 1 }).withMessage('betDetails must be a non-empty array'),
+  body('betDetails.*.odds').isFloat().withMessage('Each betDetail odds must be a number'),
+  body('betDetails.*.stack').isFloat().withMessage('Each betDetail stack must be a number'),
+  body('betDetails.*.time')
+    .isString()
+    .notEmpty()
+    .matches(/^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/i)
+    .withMessage('Each betDetail time must be in 12-hour format (e.g., 12:00:00 AM)'),
+  body('catchBy')
+    .isString()
+    .notEmpty()
+    .isIn(['Niket', 'Dhruv', 'Jaydeep', 'Krunal', 'Sachin', 'Vivek', 'Rahul', 'Harsh B.'])
+    .withMessage('catchBy must be one of: Niket, Dhruv, Jaydeep, Krunal, Sachin, Vivek, Rahul, Harsh B.'),
+  body('proofType')
+    .isString()
+    .notEmpty()
+    .isIn([
+      'Live Line Betting or Ground Line Betting',
+      'Live Line Betting, Ground Line and Group Betting',
+      'Odds Manipulating or Odds Hedging',
+      'Odds Manipulating or Odds Hedging and Group Betting',
+      'Offside Goal and Goal Cancel'
+    ])
+    .withMessage('proofType must be one of: Live Line Betting or Ground Line Betting, Live Line Betting, Ground Line and Group Betting, Odds Manipulating or Odds Hedging, Odds Manipulating or Odds Hedging and Group Betting, Offside Goal and Goal Cancel'),
+  body('proofStatus')
+    .optional()
+    .isString()
+    .isIn(['Submitted', 'Not Submitted'])
+    .withMessage('proofStatus must be either Submitted or Not Submitted'),
+  body('remark').optional().isString().withMessage('remark must be a string if provided'),
+];
+
+export const validateImportReports = [
+  body().isArray().withMessage('Request body must be an array of reports'),
+  body('*.date').isISO8601().toDate().withMessage('Date must be a valid ISO 8601 date'),
+  body('*.userName').isString().notEmpty().withMessage('userName is required'),
+  body('*.agent').isString().notEmpty().withMessage('Agent is required'),
+  body('*.origin').optional().isString().withMessage('origin must be a string if provided'),
+  body('*.sportName')
+    .isString()
+    .notEmpty()
+    .isIn([
+      'Cricket',
+      'Kabaddi',
+      'Socceraa',
+      'Tennis',
+      'Casino',
+      'Original',
+      'All Caino',
+      'Int Casino',
+      'Basketball',
+      'Multi Sports'
+    ])
+    .withMessage('sportName must be one of: Cricket, Kabaddi, Socceraa, Tennis, Casino, Original, All Caino, Int Casino, Basketball, Multi Sports'),
+  body('*.eventName').isString().notEmpty().withMessage('eventName is required'),
+  body('*.marketName')
+    .isString()
+    .notEmpty()
+    .isIn(['Match Odds', 'Moneyline', 'Multi Market'])
+    .withMessage('marketName must be one of: Match Odds, Moneyline, Multi Market'),
+  body('*.multiSport')
+    .optional()
+    .isString()
+    .isIn([
+      '',
+      'Cricket',
+      'Kabaddi',
+      'Socceraa',
+      'Tennis',
+      'Casino',
+      'Original',
+      'All Caino',
+      'Int Casino',
+      'Basketball',
+      'Multi Sports'
+    ])
+    .withMessage('multiSport must be one of: <empty>, Cricket, Kabaddi, Socceraa, Tennis, Casino, Original, All Caino, Int Casino, Basketball, Multi Sports'),
+  body('*.multiEvent')
+    .optional()
+    .isString()
+    .withMessage('multiEvent must be a string if provided'),
+  body('*.multiMarket')
+    .optional()
+    .isString()
+    .isIn(['', 'Match Odds', 'Moneyline', 'Multi Market'])
+    .withMessage('multiMarket must be one of: <empty>, Match Odds, Moneyline, Multi Market'),
+  body('*.acBalance').isFloat().withMessage('acBalance must be a number'),
+  body('*.afterVoidBalance').isFloat().withMessage('afterVoidBalance must be a number'),
+  body('*.pl').isFloat().withMessage('P&L must be a number (positive or negative)'),
+  body('*.betDetails').isArray().withMessage('betDetails must be a non-empty array'),
+  body('*.betDetails.*.odds').isFloat().withMessage('Each betDetail odds must be a number'),
+  body('*.betDetails.*.stack').isFloat().withMessage('Each betDetail stack must be a number'),
+  body('*.betDetails.*.time')
+    .isString()
+    .notEmpty()
+    .matches(/^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/i)
+    .withMessage('Each betDetail time must be in 12-hour format (e.g., 12:00:00 AM)'),
+  body('*.catchBy')
+    .isString()
+    .notEmpty()
+    .isIn(['Niket', 'Dhruv', 'Jaydeep', 'Krunal', 'Sachin', 'Vivek', 'Rahul', 'Harsh B.'])
+    .withMessage('catchBy must be one of: Niket, Dhruv, Jaydeep, Krunal, Sachin, Vivek, Rahul, Harsh B.'),
+  body('*.proofType')
+    .isString()
+    .notEmpty()
+    .isIn([
+      'Live Line Betting or Ground Line Betting',
+      'Live Line Betting, Ground Line and Group Betting',
+      'Odds Manipulating or Odds Hedging',
+      'Odds Manipulating or Odds Hedging and Group Betting',
+      'Offside Goal and Goal Cancel'
+    ])
+    .withMessage('proofType must be one of: Live Line Betting or Ground Line Betting, Live Line Betting, Ground Line and Group Betting, Odds Manipulating or Odds Hedging, Odds Manipulating or Odds Hedging and Group Betting, Offside Goal and Goal Cancel'),
+  body('*.proofStatus')
+    .optional()
+    .isString()
+    .isIn(['Submitted', 'Not Submitted'])
+    .withMessage('proofStatus must be either Submitted or Not Submitted'),
+  body('*.remark').optional().isString().withMessage('remark must be a string if provided'),
+];
+
+export const createReport = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+  }
+
+  try {
+    const reportData = {
+      ...req.body,
+      multiSport: req.body.multiSport || '',
+      multiEvent: req.body.multiEvent || '',
+      multiMarket: req.body.multiMarket || '',
+      betDetails: req.body.betDetails.map(detail => ({
+        ...detail,
+        time: convert12To24Hour(detail.time),
+      })),
+    };
+    const report = new Report(reportData);
+    const savedReport = await report.save();
+    res.status(201).json({ message: 'Report created successfully', data: savedReport });
+  } catch (error) {
+    console.error('Create report error:', error);
+    res.status(400).json({ message: 'Error creating report', error: error.message });
+  }
+};
+
+export const getAllReports = async (req, res) => {
+  try {
+    const reports = await Report.find().lean();
+    // Convert time to 12-hour format for response
+    const modifiedReports = reports.map(report => ({
+      ...report,
+      betDetails: report.betDetails.map(detail => ({
+        ...detail,
+        time: convert24To12Hour(detail.time),
+      })),
+    }));
+    res.status(200).json({ message: 'Reports retrieved successfully', data: modifiedReports });
+  } catch (error) {
+    console.error('Get all reports error:', error);
+    res.status(500).json({ message: 'Error retrieving reports', error: error.message });
+  }
+};
+
+export const getReportById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid report ID' });
+    }
+    const report = await Report.findById(id).lean();
+    if (!report) {
+      return res.status(404).json({ message: 'Report not found' });
+    }
+    // Convert time to 12-hour format
+    const modifiedReport = {
+      ...report,
+      betDetails: report.betDetails.map(detail => ({
+        ...detail,
+        time: convert24To12Hour(detail.time),
+      })),
+    };
+    res.status(200).json({ message: 'Report retrieved successfully', data: modifiedReport });
+  } catch (error) {
+    console.error('Get report by ID error:', error);
+    res.status(500).json({ message: 'Error retrieving report', error: error.message });
+  }
+};
+
+export async function updateReport(req, res) {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+  }
+
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid report ID' });
+    }
+    const reportData = {
+      ...req.body,
+      multiSport: req.body.multiSport || '',
+      multiEvent: req.body.multiEvent || '',
+      multiMarket: req.body.multiMarket || '',
+      betDetails: req.body.betDetails.map(detail => ({
+        ...detail,
+        time: convert12To24Hour(detail.time),
+      })),
+    };
+    const report = await Report.findByIdAndUpdate(id, reportData, {
+      new: true,
+      runValidators: true,
+    }).lean();
+    if (!report) {
+      return res.status(404).json({ message: 'Report not found' });
+    }
+    const modifiedReport = {
+      ...report,
+      betDetails: report.betDetails.map(detail => ({
+        ...detail,
+        time: convert24To12Hour(detail.time),
+      })),
+    };
+    res.status(200).json({ message: 'Report updated successfully', data: modifiedReport });
+  } catch (error) {
+    console.error('Update report error:', error);
+    res.status(400).json({ message: 'Error updating report', error: error.message });
+  }
+};
+
+export const deleteReport = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid report ID' });
+    }
+    const report = await Report.findByIdAndDelete(id);
+    if (!report) {
+      return res.status(404).json({ message: 'Report not found' });
+    }
+    res.status(200).json({ message: 'Report deleted successfully' });
+  } catch (error) {
+    console.error('Delete report error:', error);
+    res.status(500).json({ message: 'Error deleting report', error: error.message });
+  }
+};
+and 
+import React, { useState, useEffect, useMemo } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import {
+  FaPlus,
+  FaEdit,
+  FaTrash,
+  FaEye,
+  FaSortUp,
+  FaSortDown,
+  FaSort,
+  FaFilter,
+} from "react-icons/fa";
+import {
+  fetchReports,
+  createReport,
+  updateReport,
+  deleteReport,
+  importReports,
+} from "../../redux/reportSlice";
+import axios from "axios";
+import * as XLSX from "xlsx";
+
+// validate 12-hour time format
+function validate12HourTime(time) {
+  const regex = /^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/i;
+  return regex.test(time);
+}
+
+// convert 24-hour time to 12-hour time
+function convert24To12Hour(time24) {
+  if (!time24 || !/^\d{2}:\d{2}:\d{2}$/.test(time24)) return "12:00:00 AM";
+  const [hours, minutes, seconds] = time24.split(":").map(Number);
+  const period = hours >= 12 ? "PM" : "AM";
+  const hour = hours % 12 === 0 ? 12 : hours % 12;
+  return `${hour.toString().padStart(2, "0")}:${minutes
+    .toString()
+    .padStart(2, "0")}:${seconds.toString().padStart(2, "0")} ${period}`;
+}
+
+// normalize date 
+function normalizeDate(dateStr) {
+  let parsedDate;
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateStr)) {
+    const [day, month, year] = dateStr.split("/");
+    parsedDate = new Date(
+      `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T00:00:00.000Z`
+    );
+  } else {
+    parsedDate = new Date(dateStr);
+  }
+  if (isNaN(parsedDate.getTime())) {
+    return new Date().toISOString().split("T")[0] + "T00:00:00.000Z";
+  }
+  return new Date(parsedDate.setUTCHours(0, 0, 0, 0)).toISOString();
+}
+
+const Report = () => {
+  const dispatch = useDispatch();
+  const { reports, loading, error } = useSelector((state) => state.reports);
+
+  const [view, setView] = useState("list");
+  const [editId, setEditId] = useState(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [currentReport, setCurrentReport] = useState(null);
+  const [formData, setFormData] = useState({
+    date: "",
+    userName: "",
+    agent: "",
+    origin: "",
+    sportName: "",
+    eventName: "",
+    marketName: "",
+    multiSport: "",
+    multiEvent: "",
+    multiMarket: "",
+    acBalance: "",
+    afterVoidBalance: "",
+    pl: "",
+    betDetails: [{ odds: "", stack: "", time: "" }],
+    catchBy: "",
+    proofType: "Live Line Betting or Ground Line Betting",
+    proofStatus: "Not Submitted",
+    remark: "",
+  });
+  const [exportError, setExportError] = useState(null);
+  const [importError, setImportError] = useState(null);
+  const [importSuccess, setImportSuccess] = useState(null);
+
+  // State for search, pagination, sorting, and jump to page
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [entriesPerPage, setEntriesPerPage] = useState(10);
+  const [sortConfig, setSortConfig] = useState({ key: "date", direction: "desc" });
+  const [gotoPage, setGotoPage] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterData, setFilterData] = useState({
+    startDate: "",
+    endDate: "",
+    userName: "",
+    agent: "",
+    origin: "",
+    sportName: "",
+    eventName: "",
+    marketName: "",
+    multiSport: "",
+    multiEvent: "",
+    multiMarket: "",
+    acBalanceMin: "",
+    acBalanceMax: "",
+    afterVoidBalanceMin: "",
+    afterVoidBalanceMax: "",
+    plMin: "",
+    plMax: "",
+    oddsMin: "",
+    oddsMax: "",
+    stackMin: "",
+    stackMax: "",
+    catchBy: "",
+    proofType: "",
+    proofStatus: "",
+    remark: "",
+  });
+
+  const sportNameOptions = [
+    "Cricket",
+    "Kabaddi",
+    "Socceraa",
+    "Tennis",
+    "Casino",
+    "Original",
+    "All Caino",
+    "Int Casino",
+    "Basketball",
+    "Multi Sports",
+  ];
+
+  const marketNameOptions = ["Match Odds", "Moneyline", "Multi Market"];
+
+  const multiSportOptions = ["", ...sportNameOptions];
+  const multiMarketOptions = ["", ...marketNameOptions];
+
+  const proofTypeOptions = [
+    "Live Line Betting or Ground Line Betting",
+    "Live Line Betting, Ground Line and Group Betting",
+    "Odds Manipulating or Odds Hedging",
+    "Odds Manipulating or Odds Hedging and Group Betting",
+    "Offside Goal and Goal Cancel",
+  ];
+
+  const catchByOptions = [
+    "Niket",
+    "Dhruv",
+    "Jaydeep",
+    "Krunal",
+    "Sachin",
+    "Vivek",
+    "Rahul",
+    "Harsh B.",
+  ];
+
+  const proofStatusOptions = ["Submitted", "Not Submitted"];
+
+  useEffect(() => {
+    if (view === "list") {
+      dispatch(fetchReports());
+    }
+  }, [view, dispatch]);
+
+  useEffect(() => {
+    if (view === "edit" && editId) {
+      const report = reports.find((r) => r._id === editId);
+      if (report) {
+        setFormData({
+          date: report.date ? new Date(report.date).toISOString().split("T")[0] : "",
+          userName: report.userName || "",
+          agent: report.agent || "",
+          origin: report.origin || "",
+          sportName: report.sportName || "",
+          eventName: report.eventName || "",
+          marketName: report.marketName || "",
+          multiSport: report.multiSport || "",
+          multiEvent: report.multiEvent || "",
+          multiMarket: report.multiMarket || "",
+          acBalance: report.acBalance != null ? report.acBalance.toString() : "",
+          afterVoidBalance: report.afterVoidBalance != null ? report.afterVoidBalance.toString() : "",
+          pl: report.pl != null ? report.pl.toString() : "",
+          betDetails: Array.isArray(report.betDetails) && report.betDetails.length > 0
+            ? report.betDetails.map((detail) => ({
+                odds: detail.odds != null ? detail.odds.toString() : "",
+                stack: detail.stack != null ? detail.stack.toString() : "",
+                time: detail.time || "",
+              }))
+            : [{ odds: "", stack: "", time: "" }],
+          catchBy: report.catchBy || "",
+          proofType: report.proofType || "Live Line Betting or Ground Line Betting",
+          proofStatus: report.proofStatus || "Not Submitted",
+          remark: report.remark || "",
+        });
+      }
+    } else if (view === "create") {
+      setFormData({
+        date: "",
+        userName: "",
+        agent: "",
+        origin: "",
+        sportName: "",
+        eventName: "",
+        marketName: "",
+        multiSport: "",
+        multiEvent: "",
+        multiMarket: "",
+        acBalance: "",
+        afterVoidBalance: "",
+        pl: "",
+        betDetails: [{ odds: "", stack: "", time: "" }],
+        catchBy: "",
+        proofType: "Live Line Betting or Ground Line Betting",
+        proofStatus: "Not Submitted",
+        remark: "",
+      });
+    }
+  }, [view, editId, reports]);
+
+  const handleInputChange = (e, index = null) => {
+    const { name, value } = e.target;
+
+    if (index !== null) {
+      setFormData((prev) => {
+        const updatedBetDetails = [...prev.betDetails];
+        updatedBetDetails[index] = {
+          ...updatedBetDetails[index],
+          [name]: value,
+        };
+        return {
+          ...prev,
+          betDetails: updatedBetDetails,
+        };
+      });
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        [name]: value,
+      }));
+    }
+  };
+
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    setFilterData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const addBetDetail = () => {
+    setFormData({
+      ...formData,
+      betDetails: [...formData.betDetails, { odds: "", stack: "", time: "" }],
+    });
+  };
+
+  const removeBetDetail = (index) => {
+    setFormData({
+      ...formData,
+      betDetails: formData.betDetails.filter((_, i) => i !== index),
+    });
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const reportData = {
+      date: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString(),
+      userName: formData.userName.trim(),
+      agent: formData.agent.trim(),
+      origin: formData.origin.trim(),
+      sportName: formData.sportName,
+      eventName: formData.eventName.trim(),
+      marketName: formData.marketName,
+      multiSport: formData.multiSport.trim(),
+      multiEvent: formData.multiEvent.trim(),
+      multiMarket: formData.multiMarket.trim(),
+      acBalance: parseFloat(formData.acBalance) || 0,
+      afterVoidBalance: parseFloat(formData.afterVoidBalance) || 0,
+      pl: parseFloat(formData.pl) || 0,
+      betDetails: formData.betDetails.map((detail) => ({
+        odds: parseFloat(detail.odds) || 0,
+        stack: parseFloat(detail.stack) || 0,
+        time: detail.time.trim(),
+      })),
+      catchBy: formData.catchBy.trim(),
+      proofType: formData.proofType === "None" ? "none" : formData.proofType.trim(),
+      proofStatus: formData.proofStatus || "Not Submitted",
+      remark: formData.remark.trim(),
+    };
+
+    if (!reportData.userName) {
+      alert("User Name is required");
+      return;
+    }
+    if (!reportData.agent) {
+      alert("Agent is required");
+      return;
+    }
+    if (!reportData.sportName || !sportNameOptions.includes(reportData.sportName)) {
+      alert("Please select a valid Sport Name");
+      return;
+    }
+    if (!reportData.eventName) {
+      alert("Event Name is required");
+      return;
+    }
+    if (!reportData.marketName || !marketNameOptions.includes(reportData.marketName)) {
+      alert("Please select a valid Market Name");
+      return;
+    }
+    if (reportData.multiSport && !multiSportOptions.includes(reportData.multiSport)) {
+      alert("Please select a valid Multi Sport");
+      return;
+    }
+    if (reportData.multiMarket && !multiMarketOptions.includes(reportData.multiMarket)) {
+      alert("Please select a valid Multi Market");
+      return;
+    }
+    if (!reportData.catchBy || !catchByOptions.includes(reportData.catchBy)) {
+      alert("Please select a valid Catch By");
+      return;
+    }
+    if (
+      !reportData.betDetails.length ||
+      reportData.betDetails.some(
+        (detail) => !detail.odds || !detail.stack || !validate12HourTime(detail.time)
+      )
+    ) {
+      alert(
+        "At least one complete bet detail (odds, stack, time in 12-hour format, e.g., 12:00:00 AM) is required"
+      );
+      return;
+    }
+    if (!proofTypeOptions.includes(reportData.proofType)) {
+      alert("Please select a valid Proof Type");
+      return;
+    }
+    if (!proofStatusOptions.includes(reportData.proofStatus)) {
+      alert("Please select a valid Proof Status");
+      return;
+    }
+
+    if (view === "edit") {
+      dispatch(updateReport({ id: editId, data: reportData }))
+        .unwrap()
+        .then(() => {
+          setView("list");
+          setEditId(null);
+        })
+        .catch((err) => {
+          alert(`Failed to update report: ${err.message || "Unknown error"}`);
+        });
+    } else {
+      dispatch(createReport(reportData))
+        .unwrap()
+        .then(() => {
+          setView("list");
+        })
+        .catch((err) => {
+          alert(`Failed to create report: ${err.message || "Unknown error"}`);
+        });
+    }
+  };
+
+  const handleEdit = (id) => {
+    setEditId(id);
+    setView("edit");
+  };
+
+  const handleDelete = (id) => {
+    if (window.confirm("Are you sure you want to delete this report?")) {
+      dispatch(deleteReport(id))
+        .unwrap()
+        .catch((err) => {
+          alert(`Failed to delete report: ${err.message || "Unknown error"}`);
+        });
+    }
+  };
+
+  const handlePreview = (report) => {
+    setCurrentReport(report);
+    setPreviewOpen(true);
+  };
+
+  const handleCancel = () => {
+    setView("list");
+    setEditId(null);
+  };
+
+  const handleExportExcel = async () => {
+    setExportError(null);
+    try {
+      const params = new URLSearchParams();
+      if (searchTerm) params.append("searchTerm", searchTerm);
+      if (filterData.startDate) params.append("startDate", filterData.startDate);
+      if (filterData.endDate) params.append("endDate", filterData.endDate);
+      if (filterData.userName) params.append("userName", filterData.userName);
+      if (filterData.agent) params.append("agent", filterData.agent);
+      if (filterData.origin) params.append("origin", filterData.origin);
+      if (filterData.sportName) params.append("sportName", filterData.sportName);
+      if (filterData.eventName) params.append("eventName", filterData.eventName);
+      if (filterData.marketName) params.append("marketName", filterData.marketName);
+      if (filterData.multiSport) params.append("multiSport", filterData.multiSport);
+      if (filterData.multiEvent) params.append("multiEvent", filterData.multiEvent);
+      if (filterData.multiMarket) params.append("multiMarket", filterData.multiMarket);
+      if (filterData.acBalanceMin) params.append("acBalanceMin", filterData.acBalanceMin);
+      if (filterData.acBalanceMax) params.append("acBalanceMax", filterData.acBalanceMax);
+      if (filterData.afterVoidBalanceMin)
+        params.append("afterVoidBalanceMin", filterData.afterVoidBalanceMin);
+      if (filterData.afterVoidBalanceMax)
+        params.append("afterVoidBalanceMax", filterData.afterVoidBalanceMax);
+      if (filterData.plMin) params.append("plMin", filterData.plMin);
+      if (filterData.plMax) params.append("plMax", filterData.plMax);
+      if (filterData.oddsMin) params.append("oddsMin", filterData.oddsMin);
+      if (filterData.oddsMax) params.append("oddsMax", filterData.oddsMax);
+      if (filterData.stackMin) params.append("stackMin", filterData.stackMin);
+      if (filterData.stackMax) params.append("stackMax", filterData.stackMax);
+      if (filterData.catchBy) params.append("catchBy", filterData.catchBy);
+      if (filterData.proofType) params.append("proofType", filterData.proofType);
+      if (filterData.proofStatus) params.append("proofStatus", filterData.proofStatus);
+      if (filterData.remark) params.append("remark", filterData.remark);
+      if (sortConfig.key) params.append("sortKey", sortConfig.key);
+      if (sortConfig.direction) params.append("sortDirection", sortConfig.direction);
+
+      const response = await axios.get(
+        `http://localhost:2030/report/exportExcel?${params.toString()}`,
+        {
+          responseType: "blob",
+        }
+      );
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", "reports.xlsx");
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error exporting to Excel:", error);
+      let errorMessage = "Failed to export reports to Excel";
+      if (error.response?.status === 404) {
+        errorMessage = "No reports found to export";
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      }
+      setExportError(errorMessage);
+    }
+  };
+
+  const handleImportExcel = (event) => {
+    setImportError(null);
+    setImportSuccess(null);
+    const file = event.target.files[0];
+    if (!file) {
+      setImportError("Please select a file to import");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: "array", raw: false, dateNF: "yyyy-mm-dd" });
+        let allReports = [];
+        let sheetErrors = [];
+        let totalSheetsProcessed = 0;
+        let totalReportsImported = 0;
+
+        workbook.SheetNames.forEach((sheetName, sheetIndex) => {
+          totalSheetsProcessed++;
+          const worksheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { raw: false, blankrows: true });
+
+          if (jsonData.length === 0) {
+            sheetErrors.push(`Sheet "${sheetName}" is empty`);
+            return;
+          }
+
+          const sheetReports = jsonData
+            .map((row, rowIndex) => {
+              const isRowBlank = Object.values(row).every(
+                (value) => value === undefined || value === null || String(value).trim() === ""
+              );
+              if (isRowBlank) {
+                return null;
+              }
+
+              const requiredFields = [
+                "Date",
+                "User Name",
+                "Agent",
+                "Sport Name",
+                "Event Name",
+                "Market Name",
+                "Catch By",
+                "Odds",
+                "Stack",
+                "Time",
+                "Proof Type",
+                "Proof Status",
+              ];
+              const missingFields = requiredFields.filter(
+                (field) => !row[field] || String(row[field]).trim() === ""
+              );
+              if (missingFields.length > 0) {
+                sheetErrors.push(
+                  `Sheet "${sheetName}", row ${rowIndex + 2}: Missing or blank required fields: ${missingFields.join(", ")}`
+                );
+                return null;
+              }
+
+              let dateValue = row["Date"] ? String(row["Date"]).trim() : "";
+              let normalizedDate = normalizeDate(dateValue);
+
+              const betDetailsArray = [];
+              const odds = row["Odds"] ? String(row["Odds"]).split("\n").map((val) => val.trim()) : ["0.00"];
+              const stack = row["Stack"] ? String(row["Stack"]).split("\n").map((val) => val.trim()) : ["0.00"];
+              const time = row["Time"] ? String(row["Time"]).split("\n").map((val) => val.trim()) : ["12:00:00 AM"];
+
+              const maxLength = Math.max(odds.length, stack.length, time.length);
+              for (let i = 0; i < maxLength; i++) {
+                let timeValue = time[i] || "12:00:00 AM";
+                if (timeValue && !validate12HourTime(timeValue)) {
+                  try {
+                    const date = new Date(`1970-01-01T${timeValue}Z`);
+                    if (!isNaN(date.getTime())) {
+                      const hours = date.getHours();
+                      const minutes = date.getMinutes();
+                      const seconds = date.getSeconds();
+                      const period = hours >= 12 ? "PM" : "AM";
+                      const hour = hours % 12 === 0 ? 12 : hours % 12;
+                      timeValue = `${hour.toString().padStart(2, "0")}:${minutes
+                        .toString()
+                        .padStart(2, "0")}:${seconds.toString().padStart(2, "0")} ${period}`;
+                    } else {
+                      sheetErrors.push(
+                        `Invalid time in sheet "${sheetName}", row ${rowIndex + 2}, bet ${i + 1}: "${timeValue}"`
+                      );
+                      timeValue = "12:00:00 AM";
+                    }
+                  } catch (err) {
+                    sheetErrors.push(
+                      `Invalid time in sheet "${sheetName}", row ${rowIndex + 2}, bet ${i + 1}: "${timeValue}"`
+                    );
+                    timeValue = "12:00:00 AM";
+                  }
+                }
+
+                betDetailsArray.push({
+                  odds: parseFloat(odds[i] || "0.00") || 0,
+                  stack: parseFloat(stack[i] || "0.00") || 0,
+                  time: timeValue,
+                });
+              }
+
+              const userName = row["User Name"] ? String(row["User Name"]).trim() : "";
+              const agent = row["Agent"] ? String(row["Agent"]).trim() : "";
+              const sportName = row["Sport Name"] ? String(row["Sport Name"]).trim() : "";
+              const eventName = row["Event Name"] ? String(row["Event Name"]).trim() : "";
+              const marketName = row["Market Name"] ? String(row["Market Name"]).trim() : "";
+              const multiSport = row["Multi Sport"] ? String(row["Multi Sport"]).trim() : "";
+              const multiEvent = row["Multi Event"] ? String(row["Multi Event"]).trim() : "";
+              const multiMarket = row["Multi Market"] ? String(row["Multi Market"]).trim() : "";
+              const catchBy = row["Catch By"] ? String(row["Catch By"]).trim() : "";
+              const proofType = row["Proof Type"]
+                ? String(row["Proof Type"]).trim()
+                : "Live Line Betting or Ground Line Betting";
+              const proofStatus = row["Proof Status"] ? String(row["Proof Status"]).trim() : "Not Submitted";
+
+              if (
+                !userName ||
+                !agent ||
+                !sportName ||
+                !sportNameOptions.includes(sportName) ||
+                !eventName ||
+                !marketName ||
+                !marketNameOptions.includes(marketName) ||
+                (multiSport && !multiSportOptions.includes(multiSport)) ||
+                (multiMarket && !multiMarketOptions.includes(multiMarket)) ||
+                !catchBy ||
+                !catchByOptions.includes(catchBy) ||
+                betDetailsArray.length === 0 ||
+                betDetailsArray.some(
+                  (detail) => detail.odds === 0 || detail.stack === 0 || !validate12HourTime(detail.time)
+                ) ||
+                !proofTypeOptions.includes(proofType) ||
+                !proofStatusOptions.includes(proofStatus)
+              ) {
+                const invalidFields = [];
+                if (!userName) invalidFields.push("User Name");
+                if (!agent) invalidFields.push("Agent");
+                if (!sportName || !sportNameOptions.includes(sportName)) invalidFields.push(`Sport Name (must be one of: ${sportNameOptions.join(", ")})`);
+                if (!eventName) invalidFields.push("Event Name");
+                if (!marketName || !marketNameOptions.includes(marketName)) invalidFields.push(`Market Name (must be one of: ${marketNameOptions.join(", ")})`);
+                if (multiSport && !multiSportOptions.includes(multiSport)) invalidFields.push(`Multi Sport (must be one of: ${multiSportOptions.join(", ")})`);
+                if (multiMarket && !multiMarketOptions.includes(multiMarket)) invalidFields.push(`Multi Market (must be one of: ${multiMarketOptions.join(", ")})`);
+                if (!catchBy || !catchByOptions.includes(catchBy)) invalidFields.push(`Catch By (must be one of: ${catchByOptions.join(", ")})`);
+                if (betDetailsArray.length === 0 || betDetailsArray.some((detail) => detail.odds === 0 || detail.stack === 0 || !validate12HourTime(detail.time))) {
+                  invalidFields.push("Bet Details (odds, stack, time in 12-hour format)");
+                }
+                if (!proofTypeOptions.includes(proofType)) invalidFields.push(`Proof Type (must be one of: ${proofTypeOptions.join(", ")})`);
+                if (!proofStatusOptions.includes(proofStatus)) invalidFields.push(`Proof Status (must be one of: ${proofStatusOptions.join(", ")})`);
+
+                sheetErrors.push(
+                  `Invalid or missing required fields in sheet "${sheetName}", row ${rowIndex + 2}: ${invalidFields.join(", ")}`
+                );
+                return null;
+              }
+
+              return {
+                date: normalizedDate,
+                userName,
+                agent,
+                origin: row["Origin"] ? String(row["Origin"]).trim() : "",
+                sportName,
+                eventName,
+                marketName,
+                multiSport,
+                multiEvent,
+                multiMarket,
+                acBalance: parseFloat(row["Account Balance"]) || 0,
+                afterVoidBalance: parseFloat(row["After Void Balance"]) || 0,
+                pl: parseFloat(row["P&L"]) || 0,
+                betDetails: betDetailsArray,
+                catchBy,
+                proofType,
+                proofStatus,
+                remark: row["Remark"] ? String(row["Remark"]).trim() : "",
+                sheetName,
+                rowIndex: rowIndex + 2,
+              };
+            })
+            .filter((report) => report !== null);
+
+          totalReportsImported += sheetReports.length;
+          allReports = [...allReports, ...sheetReports];
+        });
+
+        if (allReports.length > 70) {
+          setImportError(`Cannot import more than 70 reports at a time across ${totalSheetsProcessed} sheets`);
+          return;
+        }
+
+        if (allReports.length === 0) {
+          const errorMessages = [
+            ...sheetErrors.map(msg => `Invalid data: ${msg}`),
+            "No valid reports found in the Excel file."
+          ];
+          setImportError(errorMessages.length > 0 ? errorMessages.map(msg => `- ${msg}`).join("\n") : "No valid reports found in the Excel file.");
+          return;
+        }
+
+        dispatch(importReports(allReports))
+          .then((action) => {
+            if (action.meta.requestStatus === "fulfilled") {
+              dispatch(fetchReports());
+              if (action.payload && Array.isArray(action.payload.data)) {
+                if (action.payload.data.length === 0) {
+                  setImportSuccess(
+                    `No new reports imported from ${totalSheetsProcessed} sheets. All entries are duplicates or invalid.`
+                  );
+                } else {
+                  setImportSuccess(
+                    `${action.payload.data.length} report(s) imported successfully from ${totalSheetsProcessed} sheets`
+                  );
+                }
+                const errorMessages = [];
+                if (action.payload.errors && action.payload.errors.length > 0) {
+                  errorMessages.push(...action.payload.errors.map(err => `Sheet "${err.sheetName}", row ${err.rowIndex}: ${err.msg}`));
+                }
+                if (sheetErrors.length > 0) {
+                  errorMessages.push(...sheetErrors.map(msg => `Invalid data: ${msg}`));
+                }
+                if (errorMessages.length > 0) {
+                  setImportError(`Errors during import from ${totalSheetsProcessed} sheets:\n${errorMessages.map(msg => `- ${msg}`).join("\n")}`);
+                } else {
+                  setImportError(null);
+                }
+              } else {
+                setImportError("Unexpected server response format. Please try again or check server logs.");
+              }
+            } else {
+              let errorMessages = ["Failed to save imported reports"];
+              if (action.payload?.message) {
+                errorMessages = [action.payload.message];
+                if (action.payload.errors) {
+                  errorMessages.push(...action.payload.errors.map(err => `Sheet "${err.sheetName}", row ${err.rowIndex}: ${err.msg}`));
+                }
+              } else if (action.error?.message) {
+                errorMessages = [action.error.message];
+              }
+              setImportError(`Failed to import reports from ${totalSheetsProcessed} sheets:\n${errorMessages.map(msg => `- ${msg}`).join("\n")}`);
+            }
+          })
+          .catch((error) => {
+            console.error("Error during import dispatch:", error);
+            let errorMessages = [`Failed to import reports from ${totalSheetsProcessed} sheets due to a server error: ${error.message}`];
+            setImportError(errorMessages.map(msg => `- ${msg}`).join("\n"));
+          });
+      } catch (error) {
+        console.error("Error importing Excel file:", error);
+        let errorMessages = [
+          `Failed to process the Excel file across ${totalSheetsProcessed} sheets. Ensure it is in the correct format with valid dates, required fields, valid Proof Type, and valid time in 12-hour format (e.g., 12:00:00 AM).`
+        ];
+        setImportError(errorMessages.map(msg => `- ${msg}`).join("\n"));
+      }
+    };
+    reader.onerror = () => {
+      setImportError("Error reading the file. Please try again with a valid Excel file.");
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const resetFilters = () => {
+    setFilterData({
+      startDate: "",
+      endDate: "",
+      userName: "",
+      agent: "",
+      origin: "",
+      sportName: "",
+      eventName: "",
+      marketName: "",
+      multiSport: "",
+      multiEvent: "",
+      multiMarket: "",
+      acBalanceMin: "",
+      acBalanceMax: "",
+      afterVoidBalanceMin: "",
+      afterVoidBalanceMax: "",
+      plMin: "",
+      plMax: "",
+      oddsMin: "",
+      oddsMax: "",
+      stackMin: "",
+      stackMax: "",
+      catchBy: "",
+      proofType: "",
+      proofStatus: "",
+      remark: "",
+    });
+    setSearchTerm("");
+    setCurrentPage(1);
+    setFilterOpen(false);
+  };
+
+  const filteredReports = useMemo(() => {
+    let filtered = reports;
+
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        (report) =>
+          (report.userName && report.userName.toLowerCase().includes(searchLower)) ||
+          (report.agent && report.agent.toLowerCase().includes(searchLower)) ||
+          (report.origin && report.origin.toLowerCase().includes(searchLower)) ||
+          (report.sportName && report.sportName.toLowerCase().includes(searchLower)) ||
+          (report.eventName && report.eventName.toLowerCase().includes(searchLower)) ||
+          (report.marketName && report.marketName.toLowerCase().includes(searchLower)) ||
+          (report.multiSport && report.multiSport.toLowerCase().includes(searchLower)) ||
+          (report.multiEvent && report.multiEvent.toLowerCase().includes(searchLower)) ||
+          (report.multiMarket && report.multiMarket.toLowerCase().includes(searchLower)) ||
+          (report.catchBy && report.catchBy.toLowerCase().includes(searchLower)) ||
+          (report.proofType && report.proofType.toLowerCase().includes(searchLower)) ||
+          (report.proofStatus && report.proofStatus.toLowerCase().includes(searchLower)) ||
+          (report.remark && report.remark.toLowerCase().includes(searchLower))
+      );
+    }
+
+    if (filterData.startDate || filterData.endDate) {
+      filtered = filtered.filter((report) => {
+        const reportDate = new Date(report.date);
+        const start = filterData.startDate ? new Date(filterData.startDate) : null;
+        const end = filterData.endDate ? new Date(filterData.endDate) : null;
+        return (!start || reportDate >= start) && (!end || reportDate <= end);
+      });
+    }
+
+    if (filterData.userName) {
+      filtered = filtered.filter((report) =>
+        report.userName?.toLowerCase().includes(filterData.userName.toLowerCase())
+      );
+    }
+
+    if (filterData.agent) {
+      filtered = filtered.filter((report) =>
+        report.agent?.toLowerCase().includes(filterData.agent.toLowerCase())
+      );
+    }
+
+    if (filterData.origin) {
+      filtered = filtered.filter((report) =>
+        report.origin?.toLowerCase().includes(filterData.origin.toLowerCase())
+      );
+    }
+
+    if (filterData.sportName) {
+      filtered = filtered.filter((report) => report.sportName === filterData.sportName);
+    }
+
+    if (filterData.eventName) {
+      filtered = filtered.filter((report) =>
+        report.eventName?.toLowerCase().includes(filterData.eventName.toLowerCase())
+      );
+    }
+
+    if (filterData.marketName) {
+      filtered = filtered.filter((report) => report.marketName === filterData.marketName);
+    }
+
+    if (filterData.multiSport) {
+      filtered = filtered.filter((report) => report.multiSport === filterData.multiSport);
+    }
+
+    if (filterData.multiEvent) {
+      filtered = filtered.filter((report) =>
+        report.multiEvent?.toLowerCase().includes(filterData.multiEvent.toLowerCase())
+      );
+    }
+
+    if (filterData.multiMarket) {
+      filtered = filtered.filter((report) => report.multiMarket === filterData.multiMarket);
+    }
+
+    if (filterData.acBalanceMin || filterData.acBalanceMax) {
+      filtered = filtered.filter((report) => {
+        const balance = Number(report.acBalance);
+        const min = filterData.acBalanceMin ? Number(filterData.acBalanceMin) : null;
+        const max = filterData.acBalanceMax ? Number(filterData.acBalanceMax) : null;
+        return (!min || balance >= min) && (!max || balance <= max);
+      });
+    }
+
+    if (filterData.afterVoidBalanceMin || filterData.afterVoidBalanceMax) {
+      filtered = filtered.filter((report) => {
+        const balance = Number(report.afterVoidBalance);
+        const min = filterData.afterVoidBalanceMin ? Number(filterData.afterVoidBalanceMin) : null;
+        const max = filterData.afterVoidBalanceMax ? Number(filterData.afterVoidBalanceMax) : null;
+        return (!min || balance >= min) && (!max || balance <= max);
+      });
+    }
+
+    if (filterData.plMin || filterData.plMax) {
+      filtered = filtered.filter((report) => {
+        const pl = Number(report.pl);
+        const min = filterData.plMin ? Number(filterData.plMin) : null;
+        const max = filterData.plMax ? Number(filterData.plMax) : null;
+        return (!min || pl >= min) && (!max || pl <= max);
+      });
+    }
+
+    if (filterData.oddsMin || filterData.oddsMax) {
+      filtered = filtered.filter((report) =>
+        report.betDetails.some((detail) => {
+          const odds = Number(detail.odds);
+          const min = filterData.oddsMin ? Number(filterData.oddsMin) : null;
+          const max = filterData.oddsMax ? Number(filterData.oddsMax) : null;
+          return (!min || odds >= min) && (!max || odds <= max);
+        })
+      );
+    }
+
+    if (filterData.stackMin || filterData.stackMax) {
+      filtered = filtered.filter((report) =>
+        report.betDetails.some((detail) => {
+          const stack = Number(detail.stack);
+          const min = filterData.stackMin ? Number(filterData.stackMin) : null;
+          const max = filterData.stackMax ? Number(filterData.stackMax) : null;
+          return (!min || stack >= min) && (!max || stack <= max);
+        })
+      );
+    }
+
+    if (filterData.catchBy) {
+      filtered = filtered.filter((report) => report.catchBy === filterData.catchBy);
+    }
+
+    if (filterData.proofType) {
+      filtered = filtered.filter((report) => report.proofType === filterData.proofType);
+    }
+
+    if (filterData.proofStatus) {
+      filtered = filtered.filter((report) => report.proofStatus === filterData.proofStatus);
+    }
+
+    if (filterData.remark) {
+      filtered = filtered.filter((report) =>
+        report.remark?.toLowerCase().includes(filterData.remark.toLowerCase())
+      );
+    }
+
+    return filtered;
+  }, [reports, searchTerm, filterData]);
+
+  const sortedReports = useMemo(() => {
+    const sorted = [...filteredReports];
+    if (sortConfig.key) {
+      sorted.sort((a, b) => {
+        let valueA = a[sortConfig.key];
+        let valueB = b[sortConfig.key];
+
+        if (sortConfig.key === "date") {
+          valueA = new Date(valueA);
+          valueB = new Date(valueB);
+        } else if (sortConfig.key === "acBalance" || sortConfig.key === "afterVoidBalance" || sortConfig.key === "pl") {
+          valueA = Number(valueA);
+          valueB = Number(valueB);
+        } else {
+          valueA = valueA ? String(valueA).toLowerCase() : "";
+          valueB = valueB ? String(valueB).toLowerCase() : "";
+        }
+
+        if (valueA < valueB) return sortConfig.direction === "asc" ? -1 : 1;
+        if (valueA > valueB) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+    return sorted;
+  }, [filteredReports, sortConfig]);
+
+  const handleSort = (key) => {
+    setSortConfig((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
+    }));
+  };
+
+  const paginatedReports = useMemo(() => {
+    const startIndex = (currentPage - 1) * entriesPerPage;
+    return sortedReports.slice(startIndex, startIndex + entriesPerPage);
+  }, [sortedReports, currentPage, entriesPerPage]);
+
+  const totalPages = Math.ceil(sortedReports.length / entriesPerPage);
+
+  const handlePageChange = (page) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
+  const handleGotoPage = (e) => {
+    e.preventDefault();
+    const page = Number(gotoPage);
+    if (page && page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+      setGotoPage("");
+    }
+  };
+
+  const renderSortIcon = (key) => {
+    if (sortConfig.key === key) {
+      return sortConfig.direction === "asc" ? <FaSortUp /> : <FaSortDown />;
+    }
+    return <FaSort />;
+  };
+
+  return (
+    <div className="p-6">
+      {view === "list" && (
+  <div className="p-6 relative">
+    <h1 className="text-2xl font-bold mb-4">Report Management</h1>
+    {error && <p className="text-red-500 mb-4">{error}</p>}
+    {exportError && <p className="text-red-500 mb-4">{exportError}</p>}
+    {importError && <p className="text-red-500 mb-4 whitespace-pre-line">{importError}</p>}
+    {importSuccess && <p className="text-green-500 mb-4">{importSuccess}</p>}
+
+    <div className="mb-4 flex justify-between items-center">
+      <div>
+        <input
+          type="text"
+          placeholder="Search..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="border p-2 rounded w-64"
+        />
+      </div>
+      <div className="flex space-x-2">
+        <button
+          onClick={() => setView("create")}
+          className="bg-blue-500 text-white px-4 py-2 rounded"
+        >
+          <FaPlus className="inline mr-1" /> Add Report
+        </button>
+        <button
+          onClick={handleExportExcel}
+          className="bg-green-500 text-white px-4 py-2 rounded"
+        >
+          Export to Excel
+        </button>
+        <input
+          type="file"
+          accept=".xlsx, .xls"
+          onChange={handleImportExcel}
+          className="hidden"
+          id="importExcel"
+        />
+        <label
+          htmlFor="importExcel"
+          className="bg-purple-500 text-white px-4 py-2 rounded cursor-pointer"
+        >
+          Import from Excel
+        </label>
+        <button
+          onClick={() => setFilterOpen(!filterOpen)}
+          className="bg-gray-500 text-white px-4 py-2 rounded"
+        >
+          <FaFilter className="inline mr-1" /> Filters
+        </button>
+      </div>
+    </div>
+
+    <div className="relative">
+      <div className="flex-1">
+        {loading ? (
+          <p>Loading...</p>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-white border">
+                <thead>
+                  <tr>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("date")}
+                    >
+                      Date {renderSortIcon("date")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("userName")}
+                    >
+                      User Name {renderSortIcon("userName")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("agent")}
+                    >
+                      Agent {renderSortIcon("agent")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("sportName")}
+                    >
+                      Sport Name {renderSortIcon("sportName")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("eventName")}
+                    >
+                      Event Name {renderSortIcon("eventName")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("marketName")}
+                    >
+                      Market Name {renderSortIcon("marketName")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("multiSport")}
+                    >
+                      Multi Sport {renderSortIcon("multiSport")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("multiEvent")}
+                    >
+                      Multi Event {renderSortIcon("multiEvent")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("multiMarket")}
+                    >
+                      Multi Market {renderSortIcon("multiMarket")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("acBalance")}
+                    >
+                      Ac Balance {renderSortIcon("acBalance")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("afterVoidBalance")}
+                    >
+                      After Void {renderSortIcon("afterVoidBalance")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("pl")}
+                    >
+                      P&L {renderSortIcon("pl")}
+                    </th>
+                    <th className="py-2 px-4 border">Odds</th>
+                    <th className="py-2 px-4 border">Stack</th>
+                    <th className="py-2 px-4 border">Time</th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("catchBy")}
+                    >
+                      Catch By {renderSortIcon("catchBy")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("proofType")}
+                    >
+                      Proof Type {renderSortIcon("proofType")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("proofStatus")}
+                    >
+                      Proof Status {renderSortIcon("proofStatus")}
+                    </th>
+                    <th
+                      className="py-2 px-4 border cursor-pointer"
+                      onClick={() => handleSort("remark")}
+                    >
+                      Remark {renderSortIcon("remark")}
+                    </th>
+                    <th className="py-2 px-4 border">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedReports.map((report) => (
+                    <tr key={report._id}>
+                      <td className="py-2 px-4 border">
+                        {new Date(report.date).toLocaleDateString()}
+                      </td>
+                      <td className="py-2 px-4 border">{report.userName}</td>
+                      <td className="py-2 px-4 border">{report.agent}</td>
+                      <td className="py-2 px-4 border">{report.sportName}</td>
+                      <td className="py-2 px-4 border">{report.eventName}</td>
+                      <td className="py-2 px-4 border">{report.marketName}</td>
+                      <td className="py-2 px-4 border">{report.multiSport || '-'}</td>
+                      <td className="py-2 px-4 border">{report.multiEvent || '-'}</td>
+                      <td className="py-2 px-4 border">{report.multiMarket || '-'}</td>
+                      <td className="py-2 px-4 border">{report.acBalance.toFixed(2)}</td>
+                      <td className="py-2 px-4 border">{report.afterVoidBalance.toFixed(2)}</td>
+                      <td className="py-2 px-4 border">{report.pl.toFixed(2)}</td>
+                      <td className="py-2 px-4 border">
+                        {report.betDetails.map((detail) => detail.odds.toFixed(2)).join(', ')}
+                      </td>
+                      <td className="py-2 px-4 border">
+                        {report.betDetails.map((detail) => detail.stack.toFixed(2)).join(', ')}
+                      </td>
+                      <td className="py-2 px-4 border">
+                        {report.betDetails.map((detail) => detail.time).join(', ')}
+                      </td>
+                      <td className="py-2 px-4 border">{report.catchBy}</td>
+                      <td className="py-2 px-4 border">{report.proofType}</td>
+                      <td className="py-2 px-4 border">{report.proofStatus}</td>
+                      <td className="py-2 px-4 border">{report.remark || '-'}</td>
+                      <td className="py-2 px-4 border flex space-x-2">
+                        <button
+                          onClick={() => handlePreview(report)}
+                          className="text-blue-500"
+                        >
+                          <FaEye />
+                        </button>
+                        <button
+                          onClick={() => handleEdit(report._id)}
+                          className="text-yellow-500"
+                        >
+                          <FaEdit />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(report._id)}
+                          className="text-red-500"
+                        >
+                          <FaTrash />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div className="flex items-center gap-2">
+                <select
+                  value={entriesPerPage}
+                  onChange={(e) => {
+                    setEntriesPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="border p-2 rounded"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+                <span>
+                  Showing {((currentPage - 1) * entriesPerPage) + 1} to{" "}
+                  {Math.min(currentPage * entriesPerPage, sortedReports.length)} of{" "}
+                  {sortedReports.length} entries
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="px-4 py-2 border rounded disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span>
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="px-4 py-2 border rounded disabled:opacity-50"
+                >
+                  Next
+                </button>
+                <form onSubmit={handleGotoPage} className="flex gap-2">
+                  <input
+                    type="number"
+                    value={gotoPage}
+                    onChange={(e) => setGotoPage(e.target.value)}
+                    placeholder="Go to page"
+                    className="border p-2 rounded w-24"
+                    min="1"
+                    max={totalPages}
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-500 text-white rounded"
+                  >
+                    Go
+                  </button>
+                </form>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+      {filterOpen && (
+        <div className="lg:absolute lg:right-0 lg:top-0 lg:w-80 w-full bg-gray-100 p-4 border rounded h-fit max-h-[calc(100vh-150px)] overflow-y-auto z-10 lg:shadow-lg">
+          <h2 className="text-lg font-semibold mb-2">Filters</h2>
+          <div className="space-y-4">
+            <div>
+              <label className="block">Start Date</label>
+              <input
+                type="date"
+                name="startDate"
+                value={filterData.startDate}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">End Date</label>
+              <input
+                type="date"
+                name="endDate"
+                value={filterData.endDate}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">User Name</label>
+              <input
+                type="text"
+                name="userName"
+                value={filterData.userName}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">Agent</label>
+              <input
+                type="text"
+                name="agent"
+                value={filterData.agent}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">Origin</label>
+              <input
+                type="text"
+                name="origin"
+                value={filterData.origin}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">Sport Name</label>
+              <select
+                name="sportName"
+                value={filterData.sportName}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              >
+                <option value="">All</option>
+                {sportNameOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block">Event Name</label>
+              <input
+                type="text"
+                name="eventName"
+                value={filterData.eventName}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">Market Name</label>
+              <select
+                className="border p-2 rounded w-full"
+                name="marketName"
+                value={filterData.marketName}
+                onChange={handleFilterChange}
+              >
+                <option value="">All</option>
+                {marketNameOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block">Multi Sport</label>
+              <select
+                className="border p-2 rounded w-full"
+                name="multiSport"
+                value={filterData.multiSport}
+                onChange={handleFilterChange}
+              >
+                <option value="">All</option>
+                {multiSportOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option || "None"}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block">Multi Event</label>
+              <input
+                type="text"
+                name="multiEvent"
+                value={filterData.multiEvent}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">Multi Market</label>
+              <select
+                className="border p-2 rounded w-full"
+                name="multiMarket"
+                value={filterData.multiMarket}
+                onChange={handleFilterChange}
+              >
+                <option value="">All</option>
+                {multiMarketOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option || "None"}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block">Account Balance Min</label>
+              <input
+                type="number"
+                name="acBalanceMin"
+                value={filterData.acBalanceMin}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">Account Balance Max</label>
+              <input
+                type="number"
+                name="acBalanceMax"
+                value={filterData.acBalanceMax}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">After Void Balance Min</label>
+              <input
+                type="number"
+                name="afterVoidBalanceMin"
+                value={filterData.afterVoidBalanceMin}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">After Void Balance Max</label>
+              <input
+                type="number"
+                name="afterVoidBalanceMax"
+                value={filterData.afterVoidBalanceMax}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">P&L Min</label>
+              <input
+                type="number"
+                name="plMin"
+                value={filterData.plMin}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">P&L Max</label>
+              <input
+                type="number"
+                name="plMax"
+                value={filterData.plMax}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">Odds Min</label>
+              <input
+                type="number"
+                name="oddsMin"
+                value={filterData.oddsMin}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">Odds Max</label>
+              <input
+                type="number"
+                name="oddsMax"
+                value={filterData.oddsMax}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">Stack Min</label>
+              <input
+                type="number"
+                name="stackMin"
+                value={filterData.stackMin}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">Stack Max</label>
+              <input
+                type="number"
+                name="stackMax"
+                value={filterData.stackMax}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="block">Catch By</label>
+              <select
+                className="border p-2 rounded w-full"
+                name="catchBy"
+                value={filterData.catchBy}
+                onChange={handleFilterChange}
+              >
+                <option value="">All</option>
+                {catchByOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block">Proof Type</label>
+              <select
+                className="border p-2 rounded w-full"
+                name="proofType"
+                value={filterData.proofType}
+                onChange={handleFilterChange}
+              >
+                <option value="">All</option>
+                {proofTypeOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block">Proof Status</label>
+              <select
+                className="border p-2 rounded w-full"
+                name="proofStatus"
+                value={filterData.proofStatus}
+                onChange={handleFilterChange}
+              >
+                <option value="">All</option>
+                {proofStatusOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block">Remark</label>
+              <input
+                type="text"
+                name="remark"
+                value={filterData.remark}
+                onChange={handleFilterChange}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={resetFilters}
+                className="bg-red-500 text-white px-4 py-2 rounded flex-1"
+              >
+                Reset
+              </button>
+              <button
+                onClick={() => setFilterOpen(false)}
+                className="bg-blue-500 text-white px-4 py-2 rounded flex-1"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  </div>
+)}
+
+      {(view === "create" || view === "edit") && (
+        <div>
+          <h1 className="text-2xl font-bold mb-4">
+            {view === "create" ? "Add Report" : "Edit Report"}
+          </h1>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block">Date</label>
+                <input
+                  type="date"
+                  name="date"
+                  value={formData.date}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                />
+              </div>
+              <div>
+                <label className="block">User Name</label>
+                <input
+                  type="text"
+                  name="userName"
+                  value={formData.userName}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                />
+              </div>
+              <div>
+                <label className="block">Agent</label>
+                <input
+                  type="text"
+                  name="agent"
+                  value={formData.agent}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                />
+              </div>
+              <div>
+                <label className="block">Origin</label>
+                <input
+                  type="text"
+                  name="origin"
+                  value={formData.origin}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                />
+              </div>
+              <div>
+                <label className="block">Sport Name</label>
+                <select
+                  name="sportName"
+                  value={formData.sportName}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                >
+                  <option value="">Select Sport</option>
+                  {sportNameOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block">Event Name</label>
+                <input
+                  type="text"
+                  name="eventName"
+                  value={formData.eventName}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                />
+              </div>
+              <div>
+                <label className="block">Market Name</label>
+                <select
+                  name="marketName"
+                  value={formData.marketName}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                >
+                  <option value="">Select Market</option>
+                  {marketNameOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block">Multi Sport</label>
+                <select
+                  name="multiSport"
+                  value={formData.multiSport}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                >
+                  <option value="">None</option>
+                  {multiSportOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option || "None"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block">Multi Event</label>
+                <input
+                  type="text"
+                  name="multiEvent"
+                  value={formData.multiEvent}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                />
+              </div>
+              <div>
+                <label className="block">Multi Market</label>
+                <select
+                  name="multiMarket"
+                  value={formData.multiMarket}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                >
+                  <option value="">None</option>
+                  {multiMarketOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option || "None"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block">Account Balance</label>
+                <input
+                  type="number"
+                  name="acBalance"
+                  value={formData.acBalance}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                />
+              </div>
+              <div>
+                <label className="block">After Void Balance</label>
+                <input
+                  type="number"
+                  name="afterVoidBalance"
+                  value={formData.afterVoidBalance}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                />
+              </div>
+              <div>
+                <label className="block">P&L</label>
+                <input
+                  type="number"
+                  name="pl"
+                  value={formData.pl}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                />
+              </div>
+              <div>
+                <label className="block">Catch By</label>
+                <select
+                  name="catchBy"
+                  value={formData.catchBy}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                >
+                  <option value="">Select Catch By</option>
+                  {catchByOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block">Proof Type</label>
+                <select
+                  name="proofType"
+                  value={formData.proofType}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                >
+                  {proofTypeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block">Proof Status</label>
+                <select
+                  name="proofStatus"
+                  value={formData.proofStatus}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                >
+                  {proofStatusOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block">Remark</label>
+                <input
+                  type="text"
+                  name="remark"
+                  value={formData.remark}
+                  onChange={handleInputChange}
+                  className="border p-2 rounded w-full"
+                />
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold mb-2">Bet Details</h3>
+              {formData.betDetails.map((detail, index) => (
+                <div key={index} className="flex space-x-4 mb-2 items-center">
+                  <input
+                    type="number"
+                    name="odds"
+                    placeholder="Odds"
+                    value={detail.odds}
+                    onChange={(e) => handleInputChange(e, index)}
+                    className="border p-2 rounded w-1/4"
+                  />
+                  <input
+                    type="number"
+                    name="stack"
+                    placeholder="Stack"
+                    value={detail.stack}
+                    onChange={(e) => handleInputChange(e, index)}
+                    className="border p-2 rounded w-1/4"
+                  />
+                  <input
+                    type="text"
+                    name="time"
+                    placeholder="Time (e.g., 12:00:00 AM)"
+                    value={detail.time}
+                    onChange={(e) => handleInputChange(e, index)}
+                    className="border p-2 rounded w-1/4"
+                  />
+                  {formData.betDetails.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeBetDetail(index)}
+                      className="text-red-500"
+                    >
+                      <FaTrash />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addBetDetail}
+                className="bg-blue-500 text-white px-4 py-2 rounded"
+              >
+                Add Bet Detail
+              </button>
+            </div>
+
+            <div className="flex space-x-4">
+              <button
+                type="submit"
+                className="bg-green-500 text-white px-4 py-2 rounded"
+              >
+                {view === "create" ? "Create" : "Update"}
+              </button>
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="bg-red-500 text-white px-4 py-2 rounded"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {previewOpen && currentReport && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="bg-white p-6 rounded max-w-2xl w-full">
+            <h2 className="text-xl font-bold mb-4">Report Preview</h2>
+            <p><strong>Date:</strong> {new Date(currentReport.date).toLocaleDateString()}</p>
+            <p><strong>User Name:</strong> {currentReport.userName}</p>
+            <p><strong>Agent:</strong> {currentReport.agent}</p>
+            <p><strong>Origin:</strong> {currentReport.origin || '-'}</p>
+            <p><strong>Sport Name:</strong> {currentReport.sportName}</p>
+            <p><strong>Event Name:</strong> {currentReport.eventName}</p>
+            <p><strong>Market Name:</strong> {currentReport.marketName}</p>
+            <p><strong>Multi Sport:</strong> {currentReport.multiSport || '-'}</p>
+            <p><strong>Multi Event:</strong> {currentReport.multiEvent || '-'}</p>
+            <p><strong>Multi Market:</strong> {currentReport.multiMarket || '-'}</p>
+            <p><strong>Account Balance:</strong> {currentReport.acBalance.toFixed(2)}</p>
+            <p><strong>After Void Balance:</strong> {currentReport.afterVoidBalance.toFixed(2)}</p>
+            <p><strong>P&L:</strong> {currentReport.pl.toFixed(2)}</p>
+            <p><strong>Bet Details:</strong></p>
+            <ul>
+              {currentReport.betDetails.map((detail, idx) => (
+                <li key={idx}>
+                  Odds: {detail.odds.toFixed(2)}, Stack: {detail.stack.toFixed(2)}, Time: {detail.time}
+                </li>
+              ))}
+            </ul>
+            <p><strong>Catch By:</strong> {currentReport.catchBy}</p>
+            <p><strong>Proof Type:</strong> {currentReport.proofType}</p>
+            <p><strong>Proof Status:</strong> {currentReport.proofStatus}</p>
+            <p><strong>Remark:</strong> {currentReport.remark || '-'}</p>
+            <button
+              onClick={() => setPreviewOpen(false)}
+              className="mt-4 bg-blue-500 text-white px-4 py-2 rounded"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Report;
+
+is code me list me origin field nahi aa raha he and muje list and excel me jaise mene photo me diya vaise hi structure me list and excel file chahiye multi sport event and market listme nahi dikhane chahiye jab multi data aaye tab jaise photo me he vaise hi excel file me dikhana chahiye and list me bhi aise hi dikhana chahiye 
+and form and multi form diffrent chahiye ak hi form me 
+and form me bhi me unlimited sportname eventname and market name add kar sakunga and multi ke form me bhi unlimited  sportname eventname and market name add kar sakunga and odds stack and time bhi me dono form me unlimited add kar sakunga isliye muje jo multiple fields he uske baju me plus ka icon chahiye and dropdown he usme jaise me plus pe click karu tab usme se hi select hona chahiye
+
+give me all updated files without syntax errors without cutting code
+
+
+
+
+final report.jsx form
+
+import React, { useState, useEffect, useMemo } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import {
+  FaPlus,
+  FaEdit,
+  FaTrash,
+  FaEye,
+  FaSortUp,
+  FaSortDown,
+  FaSort,
+  FaFilter,
+} from "react-icons/fa";
+import {
+  fetchReports,
+  createReport,
+  updateReport,
+  deleteReport,
+  importReports,
+} from "../../redux/reportSlice";
+import axios from "axios";
+import * as XLSX from "xlsx";
+
+// Validate 12-hour time format
+function validate12HourTime(time) {
+  const regex = /^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/i;
+  return regex.test(time);
+}
+
+// Convert 24-hour time to 12-hour time
+function convert24To12Hour(time24) {
+  if (!time24 || !/^\d{2}:\d{2}:\d{2}$/.test(time24)) return "12:00:00 AM";
+  const [hours, minutes, seconds] = time24.split(":").map(Number);
+  const period = hours >= 12 ? "PM" : "AM";
+  const hour = hours % 12 === 0 ? 12 : hours % 12;
+  return `${hour.toString().padStart(2, "0")}:${minutes
+    .toString()
+    .padStart(2, "0")}:${seconds.toString().padStart(2, "0")} ${period}`;
+}
+
+// Normalize date
+function normalizeDate(dateStr) {
+  let parsedDate;
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateStr)) {
+    const [day, month, year] = dateStr.split("/");
+    parsedDate = new Date(
+      `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T00:00:00.000Z`
+    );
+  } else {
+    parsedDate = new Date(dateStr);
+  }
+  if (isNaN(parsedDate.getTime())) {
+    return new Date().toISOString().split("T")[0] + "T00:00:00.000Z";
+  }
+  return new Date(parsedDate.setUTCHours(0, 0, 0, 0)).toISOString();
+}
+
+const Report = () => {
+  const dispatch = useDispatch();
+  const { reports, loading, error } = useSelector((state) => state.reports);
+
+  const [view, setView] = useState("list");
+  const [editId, setEditId] = useState(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [currentReport, setCurrentReport] = useState(null);
+  const [formData, setFormData] = useState({
+    date: "",
+    userName: "",
+    agent: "",
+    origin: "",
+    original: {
+      sportNames: [""],
+      eventNames: [""],
+      marketNames: [""],
+      betDetails: [{ odds: "", stack: "", time: "" }],
+    },
+    multiple: {
+      enabled: false,
+      sportName: "",
+      eventName: "",
+      marketName: "",
+      betDetails: [{ odds: "", stack: "", time: "" }],
+    },
+    acBalance: "",
+    afterVoidBalance: "",
+    pl: "",
+    catchBy: "",
+    proofType: "Live Line Betting or Ground Line Betting",
+    proofStatus: "Not Submitted",
+    remark: "",
+  });
+  const [exportError, setExportError] = useState(null);
+  const [importError, setImportError] = useState(null);
+  const [importSuccess, setImportSuccess] = useState(null);
+
+  // State for search, pagination, sorting, and jump to page
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [entriesPerPage, setEntriesPerPage] = useState(10);
+  const [sortConfig, setSortConfig] = useState({ key: "date", direction: "desc" });
+  const [gotoPage, setGotoPage] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterData, setFilterData] = useState({
+    startDate: "",
+    endDate: "",
+    userName: "",
+    agent: "",
+    origin: "",
+    sportName: "",
+    eventName: "",
+    marketName: "",
+    acBalanceMin: "",
+    acBalanceMax: "",
+    afterVoidBalanceMin: "",
+    afterVoidBalanceMax: "",
+    plMin: "",
+    plMax: "",
+    oddsMin: "",
+    oddsMax: "",
+    stackMin: "",
+    stackMax: "",
+    catchBy: "",
+    proofType: "",
+    proofStatus: "",
+    remark: "",
+  });
+
+  const sportNameOptions = [
+    "Cricket",
+    "Kabaddi",
+    "Socceraa",
+    "Tennis",
+    "Casino",
+    "Original",
+    "All Caino",
+    "Int Casino",
+    "Basketball",
+    "Multi Sports",
+  ];
+
+  const marketNameOptions = ["Match Odds", "Moneyline", "Multi Market"];
+
+  const proofTypeOptions = [
+    "Live Line Betting or Ground Line Betting",
+    "Live Line Betting, Ground Line and Group Betting",
+    "Odds Manipulating or Odds Hedging",
+    "Odds Manipulating or Odds Hedging and Group Betting",
+    "Offside Goal and Goal Cancel",
+  ];
+
+  const catchByOptions = [
+    "Niket",
+    "Dhruv",
+    "Jaydeep",
+    "Krunal",
+    "Sachin",
+    "Vivek",
+    "Rahul",
+    "Harsh B.",
+  ];
+
+  const proofStatusOptions = ["Submitted", "Not Submitted"];
+
+  useEffect(() => {
+    if (view === "list") {
+      dispatch(fetchReports());
+    }
+  }, [view, dispatch]);
+
+  useEffect(() => {
+    if (view === "edit" && editId) {
+      const report = reports.find((r) => r._id === editId);
+      if (report) {
+        setFormData({
+          date: report.date ? new Date(report.date).toISOString().split("T")[0] : "",
+          userName: report.userName || "",
+          agent: report.agent || "",
+          origin: report.origin || "",
+          original: {
+            sportNames: report.sportName ? [report.sportName] : [""],
+            eventNames: report.eventName ? [report.eventName] : [""],
+            marketNames: report.marketName ? [report.marketName] : [""],
+            betDetails: Array.isArray(report.betDetails) && report.betDetails.length > 0
+              ? report.betDetails.map((detail) => ({
+                  odds: detail.odds != null ? detail.odds.toString() : "",
+                  stack: detail.stack != null ? detail.stack.toString() : "",
+                  time: detail.time || "",
+                }))
+              : [{ odds: "", stack: "", time: "" }],
+          },
+          multiple: {
+            enabled: report.multiSport || report.multiEvent || report.multiMarket,
+            sportName: report.multiSport || "",
+            eventName: report.multiEvent || "",
+            marketName: report.multiMarket || "",
+            betDetails: report.multiSport
+              ? Array.isArray(report.betDetails) && report.betDetails.length > 0
+                ? report.betDetails.map((detail) => ({
+                    odds: detail.odds != null ? detail.odds.toString() : "",
+                    stack: detail.stack != null ? detail.stack.toString() : "",
+                    time: detail.time || "",
+                  }))
+                : [{ odds: "", stack: "", time: "" }]
+              : [{ odds: "", stack: "", time: "" }],
+          },
+          acBalance: report.acBalance != null ? report.acBalance.toString() : "",
+          afterVoidBalance: report.afterVoidBalance != null ? report.afterVoidBalance.toString() : "",
+          pl: report.pl != null ? report.pl.toString() : "",
+          catchBy: report.catchBy || "",
+          proofType: report.proofType || "Live Line Betting or Ground Line Betting",
+          proofStatus: report.proofStatus || "Not Submitted",
+          remark: report.remark || "",
+        });
+      }
+    } else if (view === "create") {
+      setFormData({
+        date: "",
+        userName: "",
+        agent: "",
+        origin: "",
+        original: {
+          sportNames: [""],
+          eventNames: [""],
+          marketNames: [""],
+          betDetails: [{ odds: "", stack: "", time: "" }],
+        },
+        multiple: {
+          enabled: false,
+          sportName: "",
+          eventName: "",
+          marketName: "",
+          betDetails: [{ odds: "", stack: "", time: "" }],
+        },
+        acBalance: "",
+        afterVoidBalance: "",
+        pl: "",
+        catchBy: "",
+        proofType: "Live Line Betting or Ground Line Betting",
+        proofStatus: "Not Submitted",
+        remark: "",
+      });
+    }
+  }, [view, editId, reports]);
+
+  const handleInputChange = (e, section, index = null, field = null) => {
+    const { name, value } = e.target;
+
+    if (section === "original" && field) {
+      setFormData((prev) => {
+        const updatedField = [...prev.original[field]];
+        updatedField[index] = value;
+        return {
+          ...prev,
+          original: {
+            ...prev.original,
+            [field]: updatedField,
+          },
+        };
+      });
+    } else if (section === "original" && name === "betDetails") {
+      setFormData((prev) => {
+        const updatedBetDetails = [...prev.original.betDetails];
+        updatedBetDetails[index] = {
+          ...updatedBetDetails[index],
+          [e.target.name]: value,
+        };
+        return {
+          ...prev,
+          original: {
+            ...prev.original,
+            betDetails: updatedBetDetails,
+          },
+        };
+      });
+    } else if (section === "multiple" && name === "betDetails") {
+      setFormData((prev) => {
+        const updatedBetDetails = [...prev.multiple.betDetails];
+        updatedBetDetails[index] = {
+          ...updatedBetDetails[index],
+          [e.target.name]: value,
+        };
+        return {
+          ...prev,
+          multiple: {
+            ...prev.multiple,
+            betDetails: updatedBetDetails,
+          },
+        };
+      });
+    } else if (section === "multiple") {
+      setFormData((prev) => ({
+        ...prev,
+        multiple: {
+          ...prev.multiple,
+          [name]: value,
+        },
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        [name]: value,
+      }));
+    }
+  };
+
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    setFilterData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const addBetDetail = (section) => {
+    setFormData((prev) => ({
+      ...prev,
+      [section]: {
+        ...prev[section],
+        betDetails: [...prev[section].betDetails, { odds: "", stack: "", time: "" }],
+      },
+    }));
+  };
+
+  const removeBetDetail = (section, index) => {
+    setFormData((prev) => ({
+      ...prev,
+      [section]: {
+        ...prev[section],
+        betDetails: prev[section].betDetails.filter((_, i) => i !== index),
+      },
+    }));
+  };
+
+  const addFieldEntry = (field) => {
+    setFormData((prev) => ({
+      ...prev,
+      original: {
+        ...prev.original,
+        [field]: [...prev.original[field], ""],
+      },
+    }));
+  };
+
+  const removeFieldEntry = (field, index) => {
+    setFormData((prev) => ({
+      ...prev,
+      original: {
+        ...prev.original,
+        [field]: prev.original[field].filter((_, i) => i !== index),
+      },
+    }));
+  };
+
+  const toggleMultipleSection = () => {
+    setFormData((prev) => ({
+      ...prev,
+      multiple: {
+        ...prev.multiple,
+        enabled: !prev.multiple.enabled,
+      },
+    }));
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const reportData = {
+      date: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString(),
+      userName: formData.userName.trim(),
+      agent: formData.agent.trim(),
+      origin: formData.origin.trim(),
+      sportName: formData.original.sportNames[0],
+      eventName: formData.original.eventNames[0],
+      marketName: formData.original.marketNames[0],
+      multiSport: formData.multiple.enabled ? formData.multiple.sportName : "",
+      multiEvent: formData.multiple.enabled ? formData.multiple.eventName : "",
+      multiMarket: formData.multiple.enabled ? formData.multiple.marketName : "",
+      acBalance: parseFloat(formData.acBalance) || 0,
+      afterVoidBalance: parseFloat(formData.afterVoidBalance) || 0,
+      pl: parseFloat(formData.pl) || 0,
+      betDetails: formData.original.betDetails.map((detail) => ({
+        odds: parseFloat(detail.odds) || 0,
+        stack: parseFloat(detail.stack) || 0,
+        time: detail.time.trim(),
+      })),
+      catchBy: formData.catchBy.trim(),
+      proofType: formData.proofType === "None" ? "none" : formData.proofType.trim(),
+      proofStatus: formData.proofStatus || "Not Submitted",
+      remark: formData.remark.trim(),
+    };
+
+    if (!reportData.userName) {
+      alert("User Name is required");
+      return;
+    }
+    if (!reportData.agent) {
+      alert("Agent is required");
+      return;
+    }
+    if (!reportData.sportName || !sportNameOptions.includes(reportData.sportName)) {
+      alert("Please select a valid Sport Name in Original section");
+      return;
+    }
+    if (!reportData.eventName) {
+      alert("Event Name is required in Original section");
+      return;
+    }
+    if (!reportData.marketName || !marketNameOptions.includes(reportData.marketName)) {
+      alert("Please select a valid Market Name in Original section");
+      return;
+    }
+    if (
+      !reportData.betDetails.length ||
+      reportData.betDetails.some(
+        (detail) => !detail.odds || !detail.stack || !validate12HourTime(detail.time)
+      )
+    ) {
+      alert(
+        "At least one complete bet detail (odds, stack, time in 12-hour format, e.g., 12:00:00 AM) is required in Original section"
+      );
+      return;
+    }
+    if (formData.multiple.enabled) {
+      if (formData.multiple.sportName && !sportNameOptions.includes(formData.multiple.sportName)) {
+        alert("Please select a valid Sport Name in Multiple section");
+        return;
+      }
+      if (formData.multiple.marketName && !marketNameOptions.includes(formData.multiple.marketName)) {
+        alert("Please select a valid Market Name in Multiple section");
+        return;
+      }
+      if (
+        formData.multiple.betDetails.some(
+          (detail) => detail.odds || detail.stack || detail.time
+        ) &&
+        formData.multiple.betDetails.some(
+          (detail) =>
+            (detail.odds && !detail.stack) ||
+            (detail.stack && !detail.odds) ||
+            (detail.time && !validate12HourTime(detail.time))
+        )
+      ) {
+        alert(
+          "If bet details are provided in Multiple section, they must be complete (odds, stack, time in 12-hour format, e.g., 12:00:00 AM)"
+        );
+        return;
+      }
+    }
+    if (!reportData.catchBy || !catchByOptions.includes(reportData.catchBy)) {
+      alert("Please select a valid Catch By");
+      return;
+    }
+    if (!proofTypeOptions.includes(reportData.proofType)) {
+      alert("Please select a valid Proof Type");
+      return;
+    }
+    if (!proofStatusOptions.includes(reportData.proofStatus)) {
+      alert("Please select a valid Proof Status");
+      return;
+    }
+
+    if (view === "edit") {
+      dispatch(updateReport({ id: editId, data: reportData }))
+        .unwrap()
+        .then(() => {
+          setView("list");
+          setEditId(null);
+        })
+        .catch((err) => {
+          alert(`Failed to update report: ${err.message || "Unknown error"}`);
+        });
+    } else {
+      dispatch(createReport(reportData))
+        .unwrap()
+        .then(() => {
+          setView("list");
+        })
+        .catch((err) => {
+          alert(`Failed to create report: ${err.message || "Unknown error"}`);
+        });
+    }
+  };
+
+  const handleEdit = (id) => {
+    setEditId(id);
+    setView("edit");
+  };
+
+  const handleDelete = (id) => {
+    if (window.confirm("Are you sure you want to delete this report?")) {
+      dispatch(deleteReport(id))
+        .unwrap()
+        .catch((err) => {
+          alert(`Failed to delete report: ${err.message || "Unknown error"}`);
+        });
+    }
+  };
+
+  const handlePreview = (report) => {
+    setCurrentReport(report);
+    setPreviewOpen(true);
+  };
+
+  const handleCancel = () => {
+    setView("list");
+    setEditId(null);
+  };
+
+  const handleExportExcel = async () => {
+    setExportError(null);
+    try {
+      const params = new URLSearchParams();
+      if (searchTerm) params.append("searchTerm", searchTerm);
+      if (filterData.startDate) params.append("startDate", filterData.startDate);
+      if (filterData.endDate) params.append("endDate", filterData.endDate);
+      if (filterData.userName) params.append("userName", filterData.userName);
+      if (filterData.agent) params.append("agent", filterData.agent);
+      if (filterData.origin) params.append("origin", filterData.origin);
+      if (filterData.sportName) params.append("sportName", filterData.sportName);
+      if (filterData.eventName) params.append("eventName", filterData.eventName);
+      if (filterData.marketName) params.append("marketName", filterData.marketName);
+      if (filterData.acBalanceMin) params.append("acBalanceMin", filterData.acBalanceMin);
+      if (filterData.acBalanceMax) params.append("acBalanceMax", filterData.acBalanceMax);
+      if (filterData.afterVoidBalanceMin)
+        params.append("afterVoidBalanceMin", filterData.afterVoidBalanceMin);
+      if (filterData.afterVoidBalanceMax)
+        params.append("afterVoidBalanceMax", filterData.afterVoidBalanceMax);
+      if (filterData.plMin) params.append("plMin", filterData.plMin);
+      if (filterData.plMax) params.append("plMax", filterData.plMax);
+      if (filterData.oddsMin) params.append("oddsMin", filterData.oddsMin);
+      if (filterData.oddsMax) params.append("oddsMax", filterData.oddsMax);
+      if (filterData.stackMin) params.append("stackMin", filterData.stackMin);
+      if (filterData.stackMax) params.append("stackMax", filterData.stackMax);
+      if (filterData.catchBy) params.append("catchBy", filterData.catchBy);
+      if (filterData.proofType) params.append("proofType", filterData.proofType);
+      if (filterData.proofStatus) params.append("proofStatus", filterData.proofStatus);
+      if (filterData.remark) params.append("remark", filterData.remark);
+      if (sortConfig.key) params.append("sortKey", sortConfig.key);
+      if (sortConfig.direction) params.append("sortDirection", sortConfig.direction);
+
+      const response = await axios.get(
+        `http://localhost:2030/report/exportExcel?${params.toString()}`,
+        {
+          responseType: "blob",
+        }
+      );
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", "reports.xlsx");
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error exporting to Excel:", error);
+      let errorMessage = "Failed to export reports to Excel";
+      if (error.response?.status === 404) {
+        errorMessage = "No reports found to export";
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      }
+      setExportError(errorMessage);
+    }
+  };
+
+  const handleImportExcel = (event) => {
+    setImportError(null);
+    setImportSuccess(null);
+    const file = event.target.files[0];
+    if (!file) {
+      setImportError("Please select a file to import");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: "array", raw: false, dateNF: "yyyy-mm-dd" });
+        let allReports = [];
+        let sheetErrors = [];
+        let totalSheetsProcessed = 0;
+        let totalReportsImported = 0;
+
+        workbook.SheetNames.forEach((sheetName, sheetIndex) => {
+          totalSheetsProcessed++;
+          const worksheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { raw: false, blankrows: true });
+
+          if (jsonData.length === 0) {
+            sheetErrors.push(`Sheet "${sheetName}" is empty`);
+            return;
+          }
+
+          const sheetReports = jsonData
+            .map((row, rowIndex) => {
+              const isRowBlank = Object.values(row).every(
+                (value) => value === undefined || value === null || String(value).trim() === ""
+              );
+              if (isRowBlank) {
+                return null;
+              }
+
+              const requiredFields = [
+                "User Name",
+                "Agent",
+                "Sport Name",
+                "Event Name",
+                "Market Name",
+                "Catch By",
+                "Odds",
+                "Stack",
+                "Time",
+                "Proof Type",
+                "Proof Status",
+              ];
+              const missingFields = requiredFields.filter(
+                (field) => !row[field] || String(row[field]).trim() === ""
+              );
+              if (missingFields.length > 0) {
+                sheetErrors.push(
+                  `Sheet "${sheetName}", row ${rowIndex + 2}: Missing or blank required fields: ${missingFields.join(", ")}`
+                );
+                return null;
+              }
+
+              let dateValue = row["Date"] ? String(row["Date"]).trim() : "";
+              let normalizedDate = normalizeDate(dateValue);
+
+              const betDetailsArray = [];
+              const odds = row["Odds"] ? String(row["Odds"]).split("\n").map((val) => val.trim()) : ["0.00"];
+              const stack = row["Stack"] ? String(row["Stack"]).split("\n").map((val) => val.trim()) : ["0.00"];
+              const time = row["Time"] ? String(row["Time"]).split("\n").map((val) => val.trim()) : ["12:00:00 AM"];
+
+              const maxLength = Math.max(odds.length, stack.length, time.length);
+              for (let i = 0; i < maxLength; i++) {
+                let timeValue = time[i] || "12:00:00 AM";
+                if (timeValue && !validate12HourTime(timeValue)) {
+                  try {
+                    const date = new Date(`1970-01-01T${timeValue}Z`);
+                    if (!isNaN(date.getTime())) {
+                      const hours = date.getHours();
+                      const minutes = date.getMinutes();
+                      const seconds = date.getSeconds();
+                      const period = hours >= 12 ? "PM" : "AM";
+                      const hour = hours % 12 === 0 ? 12 : hours % 12;
+                      timeValue = `${hour.toString().padStart(2, "0")}:${minutes
+                        .toString()
+                        .padStart(2, "0")}:${seconds.toString().padStart(2, "0")} ${period}`;
+                    } else {
+                      sheetErrors.push(
+                        `Invalid time in sheet "${sheetName}", row ${rowIndex + 2}, bet ${i + 1}: "${timeValue}"`
+                      );
+                      timeValue = "12:00:00 AM";
+                    }
+                  } catch (err) {
+                    sheetErrors.push(
+                      `Invalid time in sheet "${sheetName}", row ${rowIndex + 2}, bet ${i + 1}: "${timeValue}"`
+                    );
+                    timeValue = "12:00:00 AM";
+                  }
+                }
+
+                betDetailsArray.push({
+                  odds: parseFloat(odds[i] || "0.00") || 0,
+                  stack: parseFloat(stack[i] || "0.00") || 0,
+                  time: timeValue,
+                });
+              }
+
+              const userName = row["User Name"] ? String(row["User Name"]).trim() : "";
+              const agent = row["Agent"] ? String(row["Agent"]).trim() : "";
+              const sportName = row["Sport Name"] ? String(row["Sport Name"]).trim() : "";
+              const eventName = row["Event Name"] ? String(row["Event Name"]).trim() : "";
+              const marketName = row["Market Name"] ? String(row["Market Name"]).trim() : "";
+              const catchBy = row["Catch By"] ? String(row["Catch By"]).trim() : "";
+              const proofType = row["Proof Type"]
+                ? String(row["Proof Type"]).trim()
+                : "Live Line Betting or Ground Line Betting";
+              const proofStatus = row["Proof Status"] ? String(row["Proof Status"]).trim() : "Not Submitted";
+
+              if (
+                !userName ||
+                !agent ||
+                !sportName ||
+                !sportNameOptions.includes(sportName) ||
+                !eventName ||
+                !marketName ||
+                !marketNameOptions.includes(marketName) ||
+                !catchBy ||
+                !catchByOptions.includes(catchBy) ||
+                betDetailsArray.length === 0 ||
+                betDetailsArray.some(
+                  (detail) => detail.odds === 0 || detail.stack === 0 || !validate12HourTime(detail.time)
+                ) ||
+                !proofTypeOptions.includes(proofType) ||
+                !proofStatusOptions.includes(proofStatus)
+              ) {
+                const invalidFields = [];
+                if (!userName) invalidFields.push("User Name");
+                if (!agent) invalidFields.push("Agent");
+                if (!sportName || !sportNameOptions.includes(sportName)) invalidFields.push(`Sport Name (must be one of: ${sportNameOptions.join(", ")})`);
+                if (!eventName) invalidFields.push("Event Name");
+                if (!marketName || !marketNameOptions.includes(marketName)) invalidFields.push(`Market Name (must be one of: ${marketNameOptions.join(", ")})`);
+                if (!catchBy || !catchByOptions.includes(catchBy)) invalidFields.push(`Catch By (must be one of: ${catchByOptions.join(", ")})`);
+                if (betDetailsArray.length === 0 || betDetailsArray.some((detail) => detail.odds === 0 || detail.stack === 0 || !validate12HourTime(detail.time))) {
+                  invalidFields.push("Bet Details (odds, stack, time in 12-hour format)");
+                }
+                if (!proofTypeOptions.includes(proofType)) invalidFields.push(`Proof Type (must be one of: ${proofTypeOptions.join(", ")})`);
+                if (!proofStatusOptions.includes(proofStatus)) invalidFields.push(`Proof Status (must be one of: ${proofStatusOptions.join(", ")})`);
+
+                sheetErrors.push(
+                  `Invalid or missing required fields in sheet "${sheetName}", row ${rowIndex + 2}: ${invalidFields.join(", ")}`
+                );
+                return null;
+              }
+
+              return {
+                date: normalizedDate,
+                userName,
+                agent,
+                origin: row["Origin"] ? String(row["Origin"]).trim() : "",
+                sportName,
+                eventName,
+                marketName,
+                multiSport: "",
+                multiEvent: "",
+                multiMarket: "",
+                acBalance: parseFloat(row["Account Balance"]) || 0,
+                afterVoidBalance: parseFloat(row["After Void Balance"]) || 0,
+                pl: parseFloat(row["P&L"]) || 0,
+                betDetails: betDetailsArray,
+                catchBy,
+                proofType,
+                proofStatus,
+                remark: row["Remark"] ? String(row["Remark"]).trim() : "",
+                sheetName,
+                rowIndex: rowIndex + 2,
+              };
+            })
+            .filter((report) => report !== null);
+
+          totalReportsImported += sheetReports.length;
+          allReports = [...allReports, ...sheetReports];
+        });
+
+        if (allReports.length > 70) {
+          setImportError(`Cannot import more than 70 reports at a time across ${totalSheetsProcessed} sheets`);
+          return;
+        }
+
+        if (allReports.length === 0) {
+          const errorMessages = [
+            ...sheetErrors.map(msg => `Invalid data: ${msg}`),
+            "No valid reports found in the Excel file."
+          ];
+          setImportError(errorMessages.length > 0 ? errorMessages.map(msg => `- ${msg}`).join("\n") : "No valid reports found in the Excel file.");
+          return;
+        }
+
+        dispatch(importReports(allReports))
+          .then((action) => {
+            if (action.meta.requestStatus === "fulfilled") {
+              dispatch(fetchReports());
+              if (action.payload && Array.isArray(action.payload.data)) {
+                if (action.payload.data.length === 0) {
+                  setImportSuccess(
+                    `No new reports imported from ${totalSheetsProcessed} sheets. All entries are duplicates or invalid.`
+                  );
+                } else {
+                  setImportSuccess(
+                    `${action.payload.data.length} report(s) imported successfully from ${totalSheetsProcessed} sheets`
+                  );
+                }
+                const errorMessages = [];
+                if (action.payload.errors && action.payload.errors.length > 0) {
+                  errorMessages.push(...action.payload.errors.map(err => `Sheet "${err.sheetName}", row ${err.rowIndex}: ${err.msg}`));
+                }
+                if (sheetErrors.length > 0) {
+                  errorMessages.push(...sheetErrors.map(msg => `Invalid data: ${msg}`));
+                }
+                if (errorMessages.length > 0) {
+                  setImportError(`Errors during import from ${totalSheetsProcessed} sheets:\n${errorMessages.map(msg => `- ${msg}`).join("\n")}`);
+                } else {
+                  setImportError(null);
+                }
+              } else {
+                setImportError("Unexpected server response format. Please try again or check server logs.");
+              }
+            } else {
+              let errorMessages = ["Failed to save imported reports"];
+              if (action.payload?.message) {
+                errorMessages = [action.payload.message];
+                if (action.payload.errors) {
+                  errorMessages.push(...action.payload.errors.map(err => `Sheet "${err.sheetName}", row ${err.rowIndex}: ${err.msg}`));
+                }
+              } else if (action.error?.message) {
+                errorMessages = [action.error.message];
+              }
+              setImportError(`Failed to import reports from ${totalSheetsProcessed} sheets:\n${errorMessages.map(msg => `- ${msg}`).join("\n")}`);
+            }
+          })
+          .catch((error) => {
+            console.error("Error during import dispatch:", error);
+            let errorMessages = [`Failed to import reports from ${totalSheetsProcessed} sheets due to a server error: ${error.message}`];
+            setImportError(errorMessages.map(msg => `- ${msg}`).join("\n"));
+          });
+      } catch (error) {
+        console.error("Error importing Excel file:", error);
+        let errorMessages = [
+          `Failed to process the Excel file across ${totalSheetsProcessed} sheets. Ensure it is in the correct format with valid dates, required fields, valid Proof Type, and valid time in 12-hour format (e.g., 12:00:00 AM).`
+        ];
+        setImportError(errorMessages.map(msg => `- ${msg}`).join("\n"));
+      }
+    };
+    reader.onerror = () => {
+      setImportError("Error reading the file. Please try again with a valid Excel file.");
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const resetFilters = () => {
+    setFilterData({
+      startDate: "",
+      endDate: "",
+      userName: "",
+      agent: "",
+      origin: "",
+      sportName: "",
+      eventName: "",
+      marketName: "",
+      acBalanceMin: "",
+      acBalanceMax: "",
+      afterVoidBalanceMin: "",
+      afterVoidBalanceMax: "",
+      plMin: "",
+      plMax: "",
+      oddsMin: "",
+      oddsMax: "",
+      stackMin: "",
+      stackMax: "",
+      catchBy: "",
+      proofType: "",
+      proofStatus: "",
+      remark: "",
+    });
+    setSearchTerm("");
+    setCurrentPage(1);
+    setFilterOpen(false);
+  };
+
+  const filteredReports = useMemo(() => {
+    let filtered = reports;
+
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        (report) =>
+          (report.userName && report.userName.toLowerCase().includes(searchLower)) ||
+          (report.agent && report.agent.toLowerCase().includes(searchLower)) ||
+          (report.origin && report.origin.toLowerCase().includes(searchLower)) ||
+          (report.sportName && report.sportName.toLowerCase().includes(searchLower)) ||
+          (report.eventName && report.eventName.toLowerCase().includes(searchLower)) ||
+          (report.marketName && report.marketName.toLowerCase().includes(searchLower)) ||
+          (report.catchBy && report.catchBy.toLowerCase().includes(searchLower)) ||
+          (report.proofType && report.proofType.toLowerCase().includes(searchLower)) ||
+          (report.proofStatus && report.proofStatus.toLowerCase().includes(searchLower)) ||
+          (report.remark && report.remark.toLowerCase().includes(searchLower))
+      );
+    }
+
+    if (filterData.startDate || filterData.endDate) {
+      filtered = filtered.filter((report) => {
+        const reportDate = new Date(report.date);
+        const start = filterData.startDate ? new Date(filterData.startDate) : null;
+        const end = filterData.endDate ? new Date(filterData.endDate) : null;
+        return (!start || reportDate >= start) && (!end || reportDate <= end);
+      });
+    }
+
+    if (filterData.userName) {
+      filtered = filtered.filter((report) =>
+        report.userName?.toLowerCase().includes(filterData.userName.toLowerCase())
+      );
+    }
+
+    if (filterData.agent) {
+      filtered = filtered.filter((report) =>
+        report.agent?.toLowerCase().includes(filterData.agent.toLowerCase())
+      );
+    }
+
+    if (filterData.origin) {
+      filtered = filtered.filter((report) =>
+        report.origin?.toLowerCase().includes(filterData.origin.toLowerCase())
+      );
+    }
+
+    if (filterData.sportName) {
+      filtered = filtered.filter((report) => report.sportName === filterData.sportName);
+    }
+
+    if (filterData.eventName) {
+      filtered = filtered.filter((report) =>
+        report.eventName?.toLowerCase().includes(filterData.eventName.toLowerCase())
+      );
+    }
+
+    if (filterData.marketName) {
+      filtered = filtered.filter((report) => report.marketName === filterData.marketName);
+    }
+
+    if (filterData.acBalanceMin || filterData.acBalanceMax) {
+      filtered = filtered.filter((report) => {
+        const balance = Number(report.acBalance);
+        const min = filterData.acBalanceMin ? Number(filterData.acBalanceMin) : null;
+        const max = filterData.acBalanceMax ? Number(filterData.acBalanceMax) : null;
+        return (!min || balance >= min) && (!max || balance <= maxBalance);
+      });
+    }
+
+    if (filterData.afterVoidBalanceMin || filterData.afterVoidBalanceMax) {
+      filtered = filtered.filter((report) => {
+        const balance = Number(report.afterVoidBalance);
+        const min = filterData.afterVoidBalanceMin ? Number(filterData.afterVoidBalanceMin) : null;
+        const max = filterData.afterVoidBalanceMax ? Number(filterData.afterVoidBalanceMax) : null;
+        return (!min || balance >= min) && (!max || balance <= max);
+      });
+    }
+
+    if (filterData.plMin || filterData.plMax) {
+      filtered = filtered.filter((report) => {
+        const pl = Number(report.pl);
+        const min = filterData.plMin ? Number(filterData.plMin) : null;
+        const max = filterData.plMax ? Number(filterData.plMax) : null;
+        return (!min || pl >= min) && (!max || pl <= max);
+      });
+    }
+
+    if (filterData.oddsMin || filterData.oddsMax) {
+      filtered = filtered.filter((report) =>
+        report.betDetails.some((detail) => {
+          const odds = Number(detail.odds);
+          const min = filterData.oddsMin ? Number(filterData.oddsMin) : null;
+          const max = filterData.oddsMax ? Number(filterData.oddsMax) : null;
+          return (!min || odds >= min) && (!max || odds <= max);
+        })
+      );
+    }
+
+    if (filterData.stackMin || filterData.stackMax) {
+      filtered = filtered.filter((report) =>
+        report.betDetails.some((detail) => {
+          const stack = Number(detail.stack);
+          const min = filterData.stackMin ? Number(filterData.stackMin) : null;
+          const max = filterData.stackMax ? Number(filterData.stackMax) : null;
+          return (!min || stack >= min) && (!max || stack <= max);
+        })
+      );
+    }
+
+    if (filterData.catchBy) {
+      filtered = filtered.filter((report) => report.catchBy === filterData.catchBy);
+    }
+
+    if (filterData.proofType) {
+      filtered = filtered.filter((report) => report.proofType === filterData.proofType);
+    }
+
+    if (filterData.proofStatus) {
+      filtered = filtered.filter((report) => report.proofStatus === filterData.proofStatus);
+    }
+
+    if (filterData.remark) {
+      filtered = filtered.filter((report) =>
+        report.remark?.toLowerCase().includes(filterData.remark.toLowerCase())
+      );
+    }
+
+    return filtered;
+  }, [reports, searchTerm, filterData]);
+
+  const sortedReports = useMemo(() => {
+    const sorted = [...filteredReports];
+    if (sortConfig.key) {
+      sorted.sort((a, b) => {
+        const aValue = a[sortConfig.key];
+        const bValue = b[sortConfig.key];
+
+        if (sortConfig.key === "date") {
+          return sortConfig.direction === "asc"
+            ? new Date(aValue) - new Date(bValue)
+            : new Date(bValue) - new Date(aValue);
+        } else if (["acBalance", "afterVoidBalance", "pl"].includes(sortConfig.key)) {
+          return sortConfig.direction === "asc"
+            ? Number(aValue) - Number(bValue)
+            : Number(bValue) - Number(aValue);
+        } else if (sortConfig.key === "betDetails") {
+          const aOdds = a.betDetails[0]?.odds || 0;
+          const bOdds = b.betDetails[0]?.odds || 0;
+          return sortConfig.direction === "asc"
+            ? aOdds - bOdds
+            : bOdds - aOdds;
+        } else {
+          return sortConfig.direction === "asc"
+            ? String(aValue).localeCompare(String(bValue))
+            : String(bValue).localeCompare(String(aValue));
+        }
+      });
+    }
+    return sorted;
+  }, [filteredReports, sortConfig]);
+
+  const totalPages = Math.ceil(sortedReports.length / entriesPerPage);
+  const paginatedReports = sortedReports.slice(
+    (currentPage - 1) * entriesPerPage,
+    currentPage * entriesPerPage
+  );
+
+  const handleSort = (key) => {
+    setSortConfig((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
+    }));
+  };
+
+  const handlePageChange = (page) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
+  const handleGotoPage = () => {
+    const page = parseInt(gotoPage, 10);
+    if (!isNaN(page) && page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+      setGotoPage("");
+    }
+  };
+
+  return (
+    <div className="container mx-auto p-4">
+      {view === "list" ? (
+        <div>
+          <h1 className="text-2xl font-bold mb-4">Reports</h1>
+          {error && <div className="text-red-500 mb-4">{error}</div>}
+          {exportError && <div className="text-red-500 mb-4">{exportError}</div>}
+          {importError && (
+            <div className="text-red-500 mb-4 whitespace-pre-line">{importError}</div>
+          )}
+          {importSuccess && (
+            <div className="text-green-500 mb-4">{importSuccess}</div>
+          )}
+          <div className="flex justify-between mb-4">
+            <button
+              onClick={() => setView("create")}
+              className="bg-blue-500 text-white px-4 py-2 rounded flex items-center"
+            >
+              <FaPlus className="mr-2" /> Add Report
+            </button>
+            <div className="flex space-x-2">
+              <button
+                onClick={handleExportExcel}
+                className="bg-green-500 text-white px-4 py-2 rounded"
+              >
+                Export to Excel
+              </button>
+              <input
+                type="file"
+                accept=".xlsx, .xls"
+                onChange={handleImportExcel}
+                className="hidden"
+                id="importExcel"
+              />
+              <label
+                htmlFor="importExcel"
+                className="bg-yellow-500 text-white px-4 py-2 rounded cursor-pointer"
+              >
+                Import from Excel
+              </label>
+              <button
+                onClick={() => setFilterOpen(!filterOpen)}
+                className="bg-gray-500 text-white px-4 py-2 rounded flex items-center"
+              >
+                <FaFilter className="mr-2" /> Filters
+              </button>
+            </div>
+          </div>
+          {filterOpen && (
+            <div className="bg-gray-100 p-4 rounded mb-4">
+              <h2 className="text-lg font-semibold mb-2">Filters</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium">Start Date</label>
+                  <input
+                    type="date"
+                    name="startDate"
+                    value={filterData.startDate}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">End Date</label>
+                  <input
+                    type="date"
+                    name="endDate"
+                    value={filterData.endDate}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">User Name</label>
+                  <input
+                    type="text"
+                    name="userName"
+                    value={filterData.userName}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Agent</label>
+                  <input
+                    type="text"
+                    name="agent"
+                    value={filterData.agent}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Origin</label>
+                  <input
+                    type="text"
+                    name="origin"
+                    value={filterData.origin}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Sport Name</label>
+                  <select
+                    name="sportName"
+                    value={filterData.sportName}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="">All</option>
+                    {sportNameOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Event Name</label>
+                  <input
+                    type="text"
+                    name="eventName"
+                    value={filterData.eventName}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Market Name</label>
+                  <select
+                    name="marketName"
+                    value={filterData.marketName}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="">All</option>
+                    {marketNameOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Catch By</label>
+                  <select
+                    name="catchBy"
+                    value={filterData.catchBy}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="">All</option>
+                    {catchByOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Proof Type</label>
+                  <select
+                    name="proofType"
+                    value={filterData.proofType}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="">All</option>
+                    {proofTypeOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Proof Status</label>
+                  <select
+                    name="proofStatus"
+                    value={filterData.proofStatus}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="">All</option>
+                    {proofStatusOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Remark</label>
+                  <input
+                    type="text"
+                    name="remark"
+                    value={filterData.remark}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={resetFilters}
+                  className="bg-red-500 text-white px-4 py-2 rounded"
+                >
+                  Reset Filters
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="mb-4">
+            <input
+              type="text"
+              placeholder="Search..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full p-2 border rounded"
+            />
+          </div>
+          {loading ? (
+            <div>Loading...</div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-white border">
+                  <thead>
+                    <tr className="bg-gray-200">
+                      <th
+                        className="px-4 py-2 border cursor-pointer"
+                        onClick={() => handleSort("userName")}
+                      >
+                        User Name
+                        {sortConfig.key === "userName" ? (
+                          sortConfig.direction === "asc" ? (
+                            <FaSortUp className="inline ml-1" />
+                          ) : (
+                            <FaSortDown className="inline ml-1" />
+                          )
+                        ) : (
+                          <FaSort className="inline ml-1" />
+                        )}
+                      </th>
+                      <th
+                        className="px-4 py-2 border cursor-pointer"
+                        onClick={() => handleSort("agent")}
+                      >
+                        Agent
+                        {sortConfig.key === "agent" ? (
+                          sortConfig.direction === "asc" ? (
+                            <FaSortUp className="inline ml-1" />
+                          ) : (
+                            <FaSortDown className="inline ml-1" />
+                          )
+                        ) : (
+                          <FaSort className="inline ml-1" />
+                        )}
+                      </th>
+                      <th
+                        className="px-4 py-2 border cursor-pointer"
+                        onClick={() => handleSort("origin")}
+                      >
+                        Origin
+                        {sortConfig.key === "origin" ? (
+                          sortConfig.direction === "asc" ? (
+                            <FaSortUp className="inline ml-1" />
+                          ) : (
+                            <FaSortDown className="inline ml-1" />
+                          )
+                        ) : (
+                          <FaSort className="inline ml-1" />
+                        )}
+                      </th>
+                      <th
+                        className="px-4 py-2 border cursor-pointer"
+                        onClick={() => handleSort("sportName")}
+                      >
+                        Sport Name
+                        {sortConfig.key === "sportName" ? (
+                          sortConfig.direction === "asc" ? (
+                            <FaSortUp className="inline ml-1" />
+                          ) : (
+                            <FaSortDown className="inline ml-1" />
+                          )
+                        ) : (
+                          <FaSort className="inline ml-1" />
+                        )}
+                      </th>
+                      <th
+                        className="px-4 py-2 border cursor-pointer"
+                        onClick={() => handleSort("eventName")}
+                      >
+                        Event Name
+                        {sortConfig.key === "eventName" ? (
+                          sortConfig.direction === "asc" ? (
+                            <FaSortUp className="inline ml-1" />
+                          ) : (
+                            <FaSortDown className="inline ml-1" />
+                          )
+                        ) : (
+                          <FaSort className="inline ml-1" />
+                        )}
+                      </th>
+                      <th
+                        className="px-4 py-2 border cursor-pointer"
+                        onClick={() => handleSort("marketName")}
+                      >
+                        Market Name
+                        {sortConfig.key === "marketName" ? (
+                          sortConfig.direction === "asc" ? (
+                            <FaSortUp className="inline ml-1" />
+                          ) : (
+                            <FaSortDown className="inline ml-1" />
+                          )
+                        ) : (
+                          <FaSort className="inline ml-1" />
+                        )}
+                      </th>
+                      <th
+                        className="px-4 py-2 border cursor-pointer"
+                        onClick={() => handleSort("betDetails")}
+                      >
+                        Odds
+                        {sortConfig.key === "betDetails" ? (
+                          sortConfig.direction === "asc" ? (
+                            <FaSortUp className="inline ml-1" />
+                          ) : (
+                            <FaSortDown className="inline ml-1" />
+                          )
+                        ) : (
+                          <FaSort className="inline ml-1" />
+                        )}
+                      </th>
+                      <th className="px-4 py-2 border">Stack</th>
+                      <th className="px-4 py-2 border">Time</th>
+                      <th
+                        className="px-4 py-2 border cursor-pointer"
+                        onClick={() => handleSort("pl")}
+                      >
+                        P&L
+                        {sortConfig.key === "pl" ? (
+                          sortConfig.direction === "asc" ? (
+                            <FaSortUp className="inline ml-1" />
+                          ) : (
+                            <FaSortDown className="inline ml-1" />
+                          )
+                        ) : (
+                          <FaSort className="inline ml-1" />
+                        )}
+                      </th>
+                      <th className="px-4 py-2 border">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedReports.map((report) => (
+                      <tr key={report._id} className="border">
+                        <td className="px-4 py-2 border">{report.userName}</td>
+                        <td className="px-4 py-2 border">{report.agent}</td>
+                        <td className="px-4 py-2 border">{report.origin}</td>
+                        <td className="px-4 py-2 border">{report.sportName}</td>
+                        <td className="px-4 py-2 border">{report.eventName}</td>
+                        <td className="px-4 py-2 border">{report.marketName}</td>
+                        <td className="px-4 py-2 border whitespace-pre-line">
+                          {report.betDetails
+                            .map((detail) => Number(detail.odds).toFixed(2))
+                            .join("\n")}
+                        </td>
+                        <td className="px-4 py-2 border whitespace-pre-line">
+                          {report.betDetails
+                            .map((detail) => Number(detail.stack).toFixed(2))
+                            .join("\n")}
+                        </td>
+                        <td className="px-4 py-2 border whitespace-pre-line">
+                          {report.betDetails.map((detail) => detail.time).join("\n")}
+                        </td>
+                        <td className="px-4 py-2 border">
+                          {Number(report.pl).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-2 border">
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => handlePreview(report)}
+                              className="text-blue-500"
+                            >
+                              <FaEye />
+                            </button>
+                            <button
+                              onClick={() => handleEdit(report._id)}
+                              className="text-yellow-500"
+                            >
+                              <FaEdit />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(report._id)}
+                              className="text-red-500"
+                            >
+                              <FaTrash />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex justify-between items-center mt-4">
+                <div>
+                  <select
+                    value={entriesPerPage}
+                    onChange={(e) => setEntriesPerPage(Number(e.target.value))}
+                    className="p-2 border rounded"
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                  <span className="ml-2">
+                    Showing {(currentPage - 1) * entriesPerPage + 1} to{" "}
+                    {Math.min(currentPage * entriesPerPage, sortedReports.length)} of{" "}
+                    {sortedReports.length} entries
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="px-4 py-2 border rounded disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <span>
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="px-4 py-2 border rounded disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                  <input
+                    type="number"
+                    value={gotoPage}
+                    onChange={(e) => setGotoPage(e.target.value)}
+                    className="w-16 p-2 border rounded"
+                    placeholder="Go to"
+                  />
+                  <button
+                    onClick={handleGotoPage}
+                    className="px-4 py-2 border rounded bg-blue-500 text-white"
+                  >
+                    Go
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+          {previewOpen && currentReport && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+              <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
+                <h2 className="text-xl font-bold mb-4">Report Preview</h2>
+                <p><strong>User Name:</strong> {currentReport.userName}</p>
+                <p><strong>Agent:</strong> {currentReport.agent}</p>
+                <p><strong>Origin:</strong> {currentReport.origin}</p>
+                <p><strong>Sport Name:</strong> {currentReport.sportName}</p>
+                <p><strong>Event Name:</strong> {currentReport.eventName}</p>
+                <p><strong>Market Name:</strong> {currentReport.marketName}</p>
+                <p><strong>Multi Sport:</strong> {currentReport.multiSport || "N/A"}</p>
+                <p><strong>Multi Event:</strong> {currentReport.multiEvent || "N/A"}</p>
+                <p><strong>Multi Market:</strong> {currentReport.multiMarket || "N/A"}</p>
+                <p><strong>Account Balance:</strong> {currentReport.acBalance}</p>
+                <p><strong>After Void Balance:</strong> {currentReport.afterVoidBalance}</p>
+                <p><strong>P&L:</strong> {currentReport.pl}</p>
+                <p><strong>Bet Details:</strong></p>
+                <ul>
+                  {currentReport.betDetails.map((detail, index) => (
+                    <li key={index}>
+                      Odds: {detail.odds}, Stack: {detail.stack}, Time: {detail.time}
+                    </li>
+                  ))}
+                </ul>
+                <p><strong>Catch By:</strong> {currentReport.catchBy}</p>
+                <p><strong>Proof Type:</strong> {currentReport.proofType}</p>
+                <p><strong>Proof Status:</strong> {currentReport.proofStatus}</p>
+                <p><strong>Remark:</strong> {currentReport.remark}</p>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    onClick={() => setPreviewOpen(false)}
+                    className="bg-gray-500 text-white px-4 py-2 rounded"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div>
+          <h1 className="text-2xl font-bold mb-4">
+            {view === "edit" ? "Edit Report" : "Create Report"}
+          </h1>
+          <div onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium">Date</label>
+                <input
+                  type="date"
+                  name="date"
+                  value={formData.date}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">User Name *</label>
+                <input
+                  type="text"
+                  name="userName"
+                  value={formData.userName}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Agent *</label>
+                <input
+                  type="text"
+                  name="agent"
+                  value={formData.agent}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Origin</label>
+                <input
+                  type="text"
+                  name="origin"
+                  value={formData.origin}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+            </div>
+
+            <h2 className="text-lg font-semibold mt-6 mb-2">Original Section *</h2>
+            <div className="border p-4 rounded mb-4">
+              {formData.original.sportNames.map((sport, index) => (
+                <div key={index} className="mb-4">
+                  <label className="block text-sm font-medium">Sport Name *</label>
+                  <div className="flex items-center space-x-2">
+                    <select
+                      value={sport}
+                      onChange={(e) => handleInputChange(e, "original", index, "sportNames")}
+                      className="w-full p-2 border rounded"
+                      required
+                    >
+                      <option value="">Select Sport</option>
+                      {sportNameOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    {formData.original.sportNames.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeFieldEntry("sportNames", index)}
+                        className="text-red-500"
+                      >
+                        Remove
+                      </button>
+                    )}
+                    {index === formData.original.sportNames.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={() => addFieldEntry("sportNames")}
+                        className="text-green-500 flex items-center"
+                      >
+                        <FaPlus className="mr-1" /> Add
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {formData.original.eventNames.map((event, index) => (
+                <div key={index} className="mb-4">
+                  <label className="block text-sm font-medium">Event Name *</label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="text"
+                      value={event}
+                      onChange={(e) => handleInputChange(e, "original", index, "eventNames")}
+                      className="w-full p-2 border rounded"
+                      required
+                    />
+                    {formData.original.eventNames.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeFieldEntry("eventNames", index)}
+                        className="text-red-500"
+                      >
+                        Remove
+                      </button>
+                    )}
+                    {index === formData.original.eventNames.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={() => addFieldEntry("eventNames")}
+                        className="text-green-500 flex items-center"
+                      >
+                        <FaPlus className="mr-1" /> Add
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {formData.original.marketNames.map((market, index) => (
+                <div key={index} className="mb-4">
+                  <label className="block text-sm font-medium">Market Name *</label>
+                  <div className="flex items-center space-x-2">
+                    <select
+                      value={market}
+                      onChange={(e) => handleInputChange(e, "original", index, "marketNames")}
+                      className="w-full p-2 border rounded"
+                      required
+                    >
+                      <option value="">Select Market</option>
+                      {marketNameOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    {formData.original.marketNames.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeFieldEntry("marketNames", index)}
+                        className="text-red-500"
+                      >
+                        Remove
+                      </button>
+                    )}
+                    {index === formData.original.marketNames.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={() => addFieldEntry("marketNames")}
+                        className="text-green-500 flex items-center"
+                      >
+                        <FaPlus className="mr-1" /> Add
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <h3 className="text-md font-semibold mt-4 mb-2">Bet Details *</h3>
+              {formData.original.betDetails.map((detail, index) => (
+  <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+    <div>
+      <label className="block text-sm font-medium">Odds *</label>
+      <input
+        type="number"
+        step="0.01"
+        name="odds"
+        value={detail.odds}
+        onChange={(e) => handleInputChange(e, "original", index)}
+        className="w-full p-2 border rounded"
+        required
+      />
+    </div>
+    <div>
+      <label className="block text-sm font-medium">Stack *</label>
+      <input
+        type="number"
+        step="0.01"
+        name="stack"
+        value={detail.stack}
+        onChange={(e) => handleInputChange(e, "original", index)}
+        className="w-full p-2 border rounded"
+        required
+      />
+    </div>
+    <div className="flex items-end space-x-2">
+      <div className="flex-1">
+        <label className="block text-sm font-medium">Time (12-hour) *</label>
+        <input
+          type="text"
+          name="time"
+          value={detail.time}
+          onChange={(e) => handleInputChange(e, "original", index)}
+          placeholder="e.g., 12:00:00 AM"
+          className="w-full p-2 border rounded"
+          required
+        />
+      </div>
+      {formData.original.betDetails.length > 1 && (
+        <button
+          type="button"
+          onClick={() => removeBetDetail("original", index)}
+          className="text-red-500"
+        >
+          Remove
+        </button>
+      )}
+    </div>
+  </div>
+))}
+              <button
+                type="button"
+                onClick={() => addBetDetail("original")}
+                className="text-green-500 flex items-center mt-2"
+              >
+                <FaPlus className="mr-1" /> Add Bet Detail
+              </button>
+            </div>
+
+            <div className="flex items-center mb-4">
+              <input
+                type="checkbox"
+                checked={formData.multiple.enabled}
+                onChange={toggleMultipleSection}
+                className="mr-2"
+              />
+              <label className="text-sm font-medium">Enable Multiple Section</label>
+            </div>
+            {formData.multiple.enabled && (
+              <div className="border p-4 rounded mb-4">
+                <h2 className="text-lg font-semibold mb-2">Multiple Section</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium">Sport Name</label>
+                    <select
+                      name="sportName"
+                      value={formData.multiple.sportName}
+                      onChange={(e) => handleInputChange(e, "multiple")}
+                      className="w-full p-2 border rounded"
+                    >
+                      <option value="">Select Sport</option>
+                      {sportNameOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium">Event Name</label>
+                    <input
+                      type="text"
+                      name="eventName"
+                      value={formData.multiple.eventName}
+                      onChange={(e) => handleInputChange(e, "multiple")}
+                      className="w-full p-2 border rounded"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium">Market Name</label>
+                    <select
+                      name="marketName"
+                      value={formData.multiple.marketName}
+                      onChange={(e) => handleInputChange(e, "multiple")}
+                      className="w-full p-2 border rounded"
+                    >
+                      <option value="">Select Market</option>
+                      {marketNameOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <h3 className="text-md font-semibold mt-4 mb-2">Bet Details</h3>
+                {formData.multiple.betDetails.map((detail, index) => (
+  <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+    <div>
+      <label className="block text-sm font-medium">Odds</label>
+      <input
+        type="number"
+        step="0.01"
+        name="odds"
+        value={detail.odds}
+        onChange={(e) => handleInputChange(e, "multiple", index)}
+        className="w-full p-2 border rounded"
+      />
+    </div>
+    <div>
+      <label className="block text-sm font-medium">Stack</label>
+      <input
+        type="number"
+        step="0.01"
+        name="stack"
+        value={detail.stack}
+        onChange={(e) => handleInputChange(e, "multiple", index)}
+        className="w-full p-2 border rounded"
+      />
+    </div>
+    <div className="flex items-end space-x-2">
+      <div className="flex-1">
+        <label className="block text-sm font-medium">Time (12-hour)</label>
+        <input
+          type="text"
+          name="time"
+          value={detail.time}
+          onChange={(e) => handleInputChange(e, "multiple", index)}
+          placeholder="e.g., 12:00:00 AM"
+          className="w-full p-2 border rounded"
+        />
+      </div>
+      {formData.multiple.betDetails.length > 1 && (
+        <button
+          type="button"
+          onClick={() => removeBetDetail("multiple", index)}
+          className="text-red-500"
+        >
+          Remove
+        </button>
+      )}
+    </div>
+  </div>
+))}
+                <button
+                  type="button"
+                  onClick={() => addBetDetail("multiple")}
+                  className="text-green-500 flex items-center mt-2"
+                >
+                  <FaPlus className="mr-1" /> Add Bet Detail
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-medium">Account Balance</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  name="acBalance"
+                  value={formData.acBalance}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">After Void Balance</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  name="afterVoidBalance"
+                  value={formData.afterVoidBalance}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">P&L</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  name="pl"
+                  value={formData.pl}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Catch By *</label>
+                <select
+                  name="catchBy"
+                  value={formData.catchBy}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                  required
+                >
+                  <option value="">Select Catch By</option>
+                  {catchByOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Proof Type *</label>
+                <select
+                  name="proofType"
+                  value={formData.proofType}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                  required
+                >
+                  {proofTypeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Proof Status</label>
+                <select
+                  name="proofStatus"
+                  value={formData.proofStatus}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                >
+                  {proofStatusOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="mt-4">
+              <label className="block text-sm font-medium">Remark</label>
+              <textarea
+                name="remark"
+                value={formData.remark}
+                onChange={(e) => handleInputChange(e)}
+                className="w-full p-2 border rounded"
+                rows="3"
+              />
+            </div>
+            <div className="mt-6 flex justify-end space-x-4">
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                onClick={handleSubmit}
+                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+              >
+                {view === "edit" ? "Update Report" : "Create Report"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Report;
+
+
+
+
+.addCase(importReports.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.importError = null;
+        state.importSuccess = null;
+      })
+      .addCase(importReports.fulfilled, (state, action) => {
+        state.loading = false;
+        state.importSuccess = action.payload.message;
+        if (action.payload.errors.length > 0) {
+          state.importError = action.payload.errors.map((e) => e.msg).join('\n');
+        }
+        if (action.payload.data.length > 0) {
+          // Merge new reports, avoiding duplicates by _id
+          const existingIds = new Set(state.reports.map(r => r._id));
+          const newReports = action.payload.data.filter(r => !existingIds.has(r._id));
+          state.reports = [...state.reports, ...newReports];
+        }
+      })
+      .addCase(importReports.rejected, (state, action) => {
+        state.loading = false;
+        state.importError = action.payload.message;
+        if (action.payload.errors?.length > 0) {
+          state.importError = action.payload.errors.map((e) => e.msg).join('\n');
+        }
+      });
+  },
+});

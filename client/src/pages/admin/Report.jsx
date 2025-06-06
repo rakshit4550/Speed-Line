@@ -16,28 +16,19 @@ import {
   updateReport,
   deleteReport,
   importReports,
+  exportReports,
+  clearError,
 } from "../../redux/reportSlice";
-import axios from "axios";
 import * as XLSX from "xlsx";
 
-// validate 12-hour time format
+
+// Validate 12-hour time format
 function validate12HourTime(time) {
   const regex = /^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/i;
   return regex.test(time);
 }
 
-//  convert 24-hour time to 12-hour time
-function convert24To12Hour(time24) {
-  if (!time24 || !/^\d{2}:\d{2}:\d{2}$/.test(time24)) return "12:00:00 AM";
-  const [hours, minutes, seconds] = time24.split(":").map(Number);
-  const period = hours >= 12 ? "PM" : "AM";
-  const hour = hours % 12 === 0 ? 12 : hours % 12;
-  return `${hour.toString().padStart(2, "0")}:${minutes
-    .toString()
-    .padStart(2, "0")}:${seconds.toString().padStart(2, "0")} ${period}`;
-}
-
-// normalize date 
+// Normalize date
 function normalizeDate(dateStr) {
   let parsedDate;
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateStr)) {
@@ -56,7 +47,9 @@ function normalizeDate(dateStr) {
 
 const Report = () => {
   const dispatch = useDispatch();
-  const { reports, loading, error } = useSelector((state) => state.reports);
+  const { reports, loading, error, importSuccess, importError, exportError } = useSelector(
+    (state) => state.reports
+  );
 
   const [view, setView] = useState("list");
   const [editId, setEditId] = useState(null);
@@ -67,23 +60,27 @@ const Report = () => {
     userName: "",
     agent: "",
     origin: "",
-    sportName: "",
-    eventName: "",
-    marketName: "",
+    original: {
+      sportNames: [""],
+      eventNames: [""],
+      marketNames: [""],
+      betDetails: [{ odds: "", stack: "", time: "" }],
+    },
+    multiple: {
+      enabled: false,
+      sportName: "",
+      eventName: "",
+      marketName: "",
+      betDetails: [{ odds: "", stack: "", time: "" }],
+    },
     acBalance: "",
     afterVoidBalance: "",
     pl: "",
-    betDetails: [{ odds: "", stack: "", time: "" }],
     catchBy: "",
     proofType: "Live Line Betting or Ground Line Betting",
     proofStatus: "Not Submitted",
     remark: "",
   });
-  const [exportError, setExportError] = useState(null);
-  const [importError, setImportError] = useState(null);
-  const [importSuccess, setImportSuccess] = useState(null);
-
-  // State for search, pagination, sorting, and jump to page
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [entriesPerPage, setEntriesPerPage] = useState(10);
@@ -118,11 +115,11 @@ const Report = () => {
   const sportNameOptions = [
     "Cricket",
     "Kabaddi",
-    "Soccer",
+    "Socceraa",
     "Tennis",
     "Casino",
     "Original",
-    "All Casino",
+    "All Caino",
     "Int Casino",
     "Basketball",
     "Multi Sports",
@@ -158,20 +155,18 @@ const Report = () => {
   }, [view, dispatch]);
 
   useEffect(() => {
-    if (view === "edit" && editId) {
-      const report = reports.find((r) => r._id === editId);
-      if (report) {
-        setFormData({
-          date: report.date ? new Date(report.date).toISOString().split("T")[0] : "",
-          userName: report.userName || "",
-          agent: report.agent || "",
-          origin: report.origin || "",
-          sportName: report.sportName || "",
-          eventName: report.eventName || "",
-          marketName: report.marketName || "",
-          acBalance: report.acBalance != null ? report.acBalance.toString() : "",
-          afterVoidBalance: report.afterVoidBalance != null ? report.afterVoidBalance.toString() : "",
-          pl: report.pl != null ? report.pl.toString() : "",
+  if (view === "edit" && editId) {
+    const report = reports.find((r) => r._id === editId);
+    if (report) {
+      setFormData({
+        date: report.date ? new Date(report.date).toISOString().split("T")[0] : "",
+        userName: report.userName || "",
+        agent: report.agent || "",
+        origin: report.origin || "",
+        original: {
+          sportNames: Array.isArray(report.sportNames) ? report.sportNames : [""],
+          eventNames: Array.isArray(report.eventNames) ? report.eventNames : [""],
+          marketNames: Array.isArray(report.marketNames) ? report.marketNames : [""],
           betDetails: Array.isArray(report.betDetails) && report.betDetails.length > 0
             ? report.betDetails.map((detail) => ({
                 odds: detail.odds != null ? detail.odds.toString() : "",
@@ -179,51 +174,113 @@ const Report = () => {
                 time: detail.time || "",
               }))
             : [{ odds: "", stack: "", time: "" }],
-          catchBy: report.catchBy || "",
-          proofType: report.proofType || "Live Line Betting or Ground Line Betting",
-          proofStatus: report.proofStatus || "Not Submitted",
-          remark: report.remark || "",
-        });
-      }
-    } else if (view === "create") {
-      setFormData({
-        date: "",
-        userName: "",
-        agent: "",
-        origin: "",
+        },
+        multiple: {
+          enabled: report.multiSport || report.multiEvent || report.multiMarket || false,
+          sportName: report.multiSport || "",
+          eventName: report.multiEvent || "",
+          marketName: report.multiMarket || "",
+          betDetails: Array.isArray(report.multiBetDetails) && report.multiBetDetails.length > 0
+            ? report.multiBetDetails.map((detail) => ({
+                odds: detail.odds != null ? detail.odds.toString() : "",
+                stack: detail.stack != null ? detail.stack.toString() : "",
+                time: detail.time || "",
+              }))
+            : [{ odds: "", stack: "", time: "" }],
+        },
+        acBalance: report.acBalance != null ? report.acBalance.toString() : "",
+        afterVoidBalance: report.afterVoidBalance != null ? report.afterVoidBalance.toString() : "",
+        pl: report.pl != null ? report.pl.toString() : "",
+        catchBy: report.catchBy || "",
+        proofType: report.proofType || "Live Line Betting or Ground Line Betting",
+        proofStatus: report.proofStatus || "Not Submitted",
+        remark: report.remark || "",
+      });
+    }
+  } else if (view === "create") {
+    setFormData({
+      date: "",
+      userName: "",
+      agent: "",
+      origin: "",
+      original: {
+        sportNames: [""],
+        eventNames: [""],
+        marketNames: [""],
+        betDetails: [{ odds: "", stack: "", time: "" }],
+      },
+      multiple: {
+        enabled: false,
         sportName: "",
         eventName: "",
         marketName: "",
-        acBalance: "",
-        afterVoidBalance: "",
-        pl: "",
         betDetails: [{ odds: "", stack: "", time: "" }],
-        catchBy: "",
-        proofType: "Live Line Betting or Ground Line Betting",
-        proofStatus: "Not Submitted",
-        remark: "",
-      });
-    }
-  }, [view, editId, reports]);
+      },
+      acBalance: "",
+      afterVoidBalance: "",
+      pl: "",
+      catchBy: "",
+      proofType: "Live Line Betting or Ground Line Betting",
+      proofStatus: "Not Submitted",
+      remark: "",
+    });
+  }
+}, [view, editId, reports]);
 
-  const handleInputChange = (e, index = null) => {
+  const handleInputChange = (e, section, index = null, field = null) => {
     const { name, value } = e.target;
 
-    if (index !== null) {
-      // Handle betDetails array inputs
+    if (section === "original" && field) {
       setFormData((prev) => {
-        const updatedBetDetails = [...prev.betDetails];
+        const updatedField = [...prev.original[field]];
+        updatedField[index] = value;
+        return {
+          ...prev,
+          original: {
+            ...prev.original,
+            [field]: updatedField,
+          },
+        };
+      });
+    } else if (section === "original" && index !== null) {
+      setFormData((prev) => {
+        const updatedBetDetails = [...prev.original.betDetails];
         updatedBetDetails[index] = {
           ...updatedBetDetails[index],
-          [name]: value, // Directly use the name (odds, stack, time)
+          [name]: value,
         };
         return {
           ...prev,
-          betDetails: updatedBetDetails,
+          original: {
+            ...prev.original,
+            betDetails: updatedBetDetails,
+          },
         };
       });
+    } else if (section === "multiple" && index !== null) {
+      setFormData((prev) => {
+        const updatedBetDetails = [...prev.multiple.betDetails];
+        updatedBetDetails[index] = {
+          ...updatedBetDetails[index],
+          [name]: value,
+        };
+        return {
+          ...prev,
+          multiple: {
+            ...prev.multiple,
+            betDetails: updatedBetDetails,
+          },
+        };
+      });
+    } else if (section === "multiple") {
+      setFormData((prev) => ({
+        ...prev,
+        multiple: {
+          ...prev.multiple,
+          [name]: value,
+        },
+      }));
     } else {
-      // Handle top-level form inputs
       setFormData((prev) => ({
         ...prev,
         [name]: value,
@@ -239,67 +296,112 @@ const Report = () => {
     }));
   };
 
-  const addBetDetail = () => {
-    setFormData({
-      ...formData,
-      betDetails: [...formData.betDetails, { odds: "", stack: "", time: "" }],
-    });
+  const addBetDetail = (section) => {
+    setFormData((prev) => ({
+      ...prev,
+      [section]: {
+        ...prev[section],
+        betDetails: [...prev[section].betDetails, { odds: "", stack: "", time: "" }],
+      },
+    }));
   };
 
-  const removeBetDetail = (index) => {
-    setFormData({
-      ...formData,
-      betDetails: formData.betDetails.filter((_, i) => i !== index),
-    });
+  const removeBetDetail = (section, index) => {
+    setFormData((prev) => ({
+      ...prev,
+      [section]: {
+        ...prev[section],
+        betDetails: prev[section].betDetails.filter((_, i) => i !== index),
+      },
+    }));
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const reportData = {
-      date: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString(),
-      userName: formData.userName.trim(),
-      agent: formData.agent.trim(),
-      origin: formData.origin.trim(),
-      sportName: formData.sportName,
-      eventName: formData.eventName.trim(),
-      marketName: formData.marketName,
-      acBalance: parseFloat(formData.acBalance) || 0,
-      afterVoidBalance: parseFloat(formData.afterVoidBalance) || 0,
-      pl: parseFloat(formData.pl) || 0,
-      betDetails: formData.betDetails.map((detail) => ({
-        odds: parseFloat(detail.odds) || 0,
-        stack: parseFloat(detail.stack) || 0,
-        time: detail.time.trim(),
-      })),
-      catchBy: formData.catchBy.trim(),
-      proofType: formData.proofType === "None" ? "none" : formData.proofType.trim(),
-      proofStatus: formData.proofStatus || "Not Submitted",
-      remark: formData.remark.trim(),
-    };
+  const addFieldEntry = (field) => {
+    setFormData((prev) => ({
+      ...prev,
+      original: {
+        ...prev.original,
+        [field]: [...prev.original[field], ""],
+      },
+    }));
+  };
 
-    // Frontend validation
-    if (!reportData.userName) {
-      alert("User Name is required");
-      return;
-    }
+  const removeFieldEntry = (field, index) => {
+    setFormData((prev) => ({
+      ...prev,
+      original: {
+        ...prev.original,
+        [field]: prev.original[field].filter((_, i) => i !== index),
+      },
+    }));
+  };
+
+  const toggleMultipleSection = () => {
+    setFormData((prev) => ({
+      ...prev,
+      multiple: {
+        ...prev.multiple,
+        enabled: !prev.multiple.enabled,
+      },
+    }));
+  };
+
+ const handleSubmit = (e) => {
+  e.preventDefault();
+  const reportData = {
+    date: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString(),
+    userName: formData.userName.trim(),
+    agent: formData.agent.trim(),
+    origin: formData.origin.trim(),
+    sportNames: formData.original.sportNames,
+    eventNames: formData.original.eventNames,
+    marketNames: formData.original.marketNames,
+    betDetails: formData.original.betDetails.map((detail) => ({
+      odds: parseFloat(detail.odds) || 0,
+      stack: parseFloat(detail.stack) || 0,
+      time: detail.time.trim(),
+    })),
+    multiSport: formData.multiple.enabled ? formData.multiple.sportName : "",
+    multiEvent: formData.multiple.enabled ? formData.multiple.eventName : "",
+    multiMarket: formData.multiple.enabled ? formData.multiple.marketName : "",
+    multiBetDetails: formData.multiple.enabled
+      ? formData.multiple.betDetails.map((detail) => ({
+          odds: parseFloat(detail.odds) || 0,
+          stack: parseFloat(detail.stack) || 0,
+          time: detail.time.trim(),
+        }))
+      : [],
+    multiple: {
+      enabled: formData.multiple.enabled, // Explicitly include the boolean value
+    },
+    acBalance: parseFloat(formData.acBalance) || 0,
+    afterVoidBalance: parseFloat(formData.afterVoidBalance) || 0,
+    pl: parseFloat(formData.pl) || 0,
+    catchBy: formData.catchBy.trim(),
+    proofType: formData.proofType.trim(),
+    proofStatus: formData.proofStatus || "Not Submitted",
+    remark: formData.remark.trim(),
+  };
+
+  // Client-side validation
+  if (!reportData.userName) {
+    alert("User Name is required");
+    return;
+  }
     if (!reportData.agent) {
       alert("Agent is required");
       return;
     }
-    if (!reportData.sportName || !sportNameOptions.includes(reportData.sportName)) {
-      alert("Please select a valid Sport Name");
+    if (!reportData.sportNames[0] || !sportNameOptions.includes(reportData.sportNames[0])) {
+      alert("Please select at least one valid Sport Name in Original section");
       return;
     }
-    if (!reportData.eventName) {
-      alert("Event Name is required");
+    if (!reportData.eventNames[0]) {
+      alert("At least one Event Name is required in Original section");
       return;
     }
-    if (!reportData.marketName || !marketNameOptions.includes(reportData.marketName)) {
-      alert("Please select a valid Market Name");
-      return;
-    }
-    if (!reportData.catchBy || !catchByOptions.includes(reportData.catchBy)) {
-      alert("Please select a valid Catch By");
+    if (!reportData.marketNames[0] || !marketNameOptions.includes(reportData.marketNames[0])) {
+      alert("Please select at least one valid Market Name in Original section");
       return;
     }
     if (
@@ -309,8 +411,36 @@ const Report = () => {
       )
     ) {
       alert(
-        "At least one complete bet detail (odds, stack, time in 12-hour format, e.g., 12:00:00 AM) is required"
+        "At least one complete bet detail (odds, stack, time in 12-hour format, e.g., 12:00:00 AM) is required in Original section"
       );
+      return;
+    }
+    if (formData.multiple.enabled) {
+      if (reportData.multiSport && !sportNameOptions.includes(reportData.multiSport)) {
+        alert("Please select a valid Sport Name in Multiple section");
+        return;
+      }
+      if (reportData.multiMarket && !marketNameOptions.includes(reportData.multiMarket)) {
+        alert("Please select a valid Market Name in Multiple section");
+        return;
+      }
+      if (
+        reportData.multiBetDetails.length > 0 &&
+        reportData.multiBetDetails.some(
+          (detail) =>
+            (detail.odds && !detail.stack) ||
+            (detail.stack && !detail.odds) ||
+            (detail.time && !validate12HourTime(detail.time))
+        )
+      ) {
+        alert(
+          "If bet details are provided in Multiple section, they must be complete (odds, stack, time in 12-hour format, e.g., 12:00:00 AM)"
+        );
+        return;
+      }
+    }
+    if (!reportData.catchBy || !catchByOptions.includes(reportData.catchBy)) {
+      alert("Please select a valid Catch By");
       return;
     }
     if (!proofTypeOptions.includes(reportData.proofType)) {
@@ -322,27 +452,27 @@ const Report = () => {
       return;
     }
 
-    if (view === "edit") {
-      dispatch(updateReport({ id: editId, data: reportData }))
-        .unwrap()
-        .then(() => {
-          setView("list");
-          setEditId(null);
-        })
-        .catch((err) => {
-          alert(`Failed to update report: ${err.message || "Unknown error"}`);
-        });
-    } else {
-      dispatch(createReport(reportData))
-        .unwrap()
-        .then(() => {
-          setView("list");
-        })
-        .catch((err) => {
-          alert(`Failed to create report: ${err.message || "Unknown error"}`);
-        });
-    }
-  };
+if (view === "edit") {
+    dispatch(updateReport({ id: editId, data: reportData }))
+      .unwrap()
+      .then(() => {
+        setView("list");
+        setEditId(null);
+      })
+      .catch((err) => {
+        alert(`Failed to update report: ${err}`);
+      });
+  } else {
+    dispatch(createReport(reportData))
+      .unwrap()
+      .then(() => {
+        setView("list");
+      })
+      .catch((err) => {
+        alert(`Failed to create report: ${err}`);
+      });
+  }
+};
 
   const handleEdit = (id) => {
     setEditId(id);
@@ -354,7 +484,7 @@ const Report = () => {
       dispatch(deleteReport(id))
         .unwrap()
         .catch((err) => {
-          alert(`Failed to delete report: ${err.message || "Unknown error"}`);
+          alert(`Failed to delete report: ${err}`);
         });
     }
   };
@@ -370,72 +500,221 @@ const Report = () => {
   };
 
   const handleExportExcel = async () => {
-    setExportError(null);
-    try {
-      const params = new URLSearchParams();
-      if (searchTerm) params.append("searchTerm", searchTerm);
-      if (filterData.startDate) params.append("startDate", filterData.startDate);
-      if (filterData.endDate) params.append("endDate", filterData.endDate);
-      if (filterData.userName) params.append("userName", filterData.userName);
-      if (filterData.agent) params.append("agent", filterData.agent);
-      if (filterData.origin) params.append("origin", filterData.origin);
-      if (filterData.sportName) params.append("sportName", filterData.sportName);
-      if (filterData.eventName) params.append("eventName", filterData.eventName);
-      if (filterData.marketName) params.append("marketName", filterData.marketName);
-      if (filterData.acBalanceMin) params.append("acBalanceMin", filterData.acBalanceMin);
-      if (filterData.acBalanceMax) params.append("acBalanceMax", filterData.acBalanceMax);
-      if (filterData.afterVoidBalanceMin)
-        params.append("afterVoidBalanceMin", filterData.afterVoidBalanceMin);
-      if (filterData.afterVoidBalanceMax)
-        params.append("afterVoidBalanceMax", filterData.afterVoidBalanceMax);
-      if (filterData.plMin) params.append("plMin", filterData.plMin);
-      if (filterData.plMax) params.append("plMax", filterData.plMax);
-      if (filterData.oddsMin) params.append("oddsMin", filterData.oddsMin);
-      if (filterData.oddsMax) params.append("oddsMax", filterData.oddsMax);
-      if (filterData.stackMin) params.append("stackMin", filterData.stackMin);
-      if (filterData.stackMax) params.append("stackMax", filterData.stackMax);
-      if (filterData.catchBy) params.append("catchBy", filterData.catchBy);
-      if (filterData.proofType) params.append("proofType", filterData.proofType);
-      if (filterData.proofStatus) params.append("proofStatus", filterData.proofStatus);
-      if (filterData.remark) params.append("remark", filterData.remark);
-      if (sortConfig.key) params.append("sortKey", sortConfig.key);
-      if (sortConfig.direction) params.append("sortDirection", sortConfig.direction);
-
-      const response = await axios.get(
-        `http://localhost:2030/report/exportExcel?${params.toString()}`,
-        {
-          responseType: "blob",
-        }
-      );
-
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", "reports.xlsx");
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("Error exporting to Excel:", error);
-      let errorMessage = "Failed to export reports to Excel";
-      if (error.response?.status === 404) {
-        errorMessage = "No reports found to export";
-      } else if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
-      }
-      setExportError(errorMessage);
-    }
+    dispatch(exportReports(filterData))
+      .unwrap()
+      .then((blob) => {
+        const url = window.URL.createObjectURL(new Blob([blob]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", "reports.xlsx");
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      })
+      .catch((error) => {
+        alert(`Failed to export reports: ${error}`);
+      });
   };
 
+   
+//      const handleImportExcel = (event) => {
+//   const file = event.target.files[0];
+//   if (!file) {
+//     return; // Silently return if no file is selected
+//   }
 
+//   const reader = new FileReader();
+//   reader.onload = (e) => {
+//     try {
+//       const data = new Uint8Array(e.target.result);
+//       const workbook = XLSX.read(data, { type: "array", raw: false, dateNF: "yyyy-mm-dd" });
+//       let allReports = [];
+//       let sheetErrors = [];
+
+//       workbook.SheetNames.forEach((sheetName) => {
+//         const worksheet = workbook.Sheets[sheetName];
+//         const jsonData = XLSX.utils.sheet_to_json(worksheet, { raw: false, blankrows: true });
+
+//         if (jsonData.length === 0) {
+//           sheetErrors.push(`Sheet "${sheetName}" is empty`);
+//           return;
+//         }
+
+//         const sheetReports = jsonData
+//           .map((row, rowIndex) => {
+//             const isRowBlank = Object.values(row).every(
+//               (value) => value === undefined || value === null || String(value).trim() === ""
+//             );
+//             if (isRowBlank) {
+//               return null;
+//             }
+
+//             const requiredFields = [
+//               "User Name",
+//               "Agent",
+//               "Sport Names",
+//               "Event Names",
+//               "Market Names",
+//               "Catch By",
+//               "Odds",
+//               "Stack",
+//               "Time",
+//               "Proof Type",
+//               "Proof Status",
+//             ];
+//             const missingFields = requiredFields.filter(
+//               (field) => !row[field] || String(row[field]).trim() === ""
+//             );
+//             if (missingFields.length > 0) {
+//               sheetErrors.push(
+//                 `Sheet "${sheetName}", row ${rowIndex + 2}: Missing or blank required fields: ${missingFields.join(", ")}`
+//               );
+//               return null;
+//             }
+
+//             let dateValue = row["Date"] ? String(row["Date"]).trim() : "";
+//             let normalizedDate = normalizeDate(dateValue);
+
+//             const betDetailsArray = [];
+//             const odds = row["Odds"] ? String(row["Odds"]).split("\n").map((val) => val.trim()) : ["0.00"];
+//             const stack = row["Stack"] ? String(row["Stack"]).split("\n").map((val) => val.trim()) : ["0.00"];
+//             const time = row["Time"] ? String(row["Time"]).split("\n").map((val) => val.trim()) : ["12:00:00 AM"];
+//             const multiOdds = row["Multi Odds"] ? String(row["Multi Odds"]).split("\n").map((val) => val.trim()) : [];
+//             const multiStack = row["Multi Stack"] ? String(row["Multi Stack"]).split("\n").map((val) => val.trim()) : [];
+//             const multiTime = row["Multi Time"] ? String(row["Multi Time"]).split("\n").map((val) => val.trim()) : [];
+
+//             const maxLength = Math.max(odds.length, stack.length, time.length);
+//             for (let i = 0; i < maxLength; i++) {
+//               let timeValue = time[i] || "12:00:00 AM";
+//               if (timeValue && !validate12HourTime(timeValue)) {
+//                 sheetErrors.push(
+//                   `Invalid time in sheet "${sheetName}", row ${rowIndex + 2}, bet ${i + 1}: "${timeValue}"`
+//                 );
+//                 timeValue = "12:00:00 AM";
+//               }
+//               betDetailsArray.push({
+//                 odds: parseFloat(odds[i] || "0.00") || 0,
+//                 stack: parseFloat(stack[i] || "0.00") || 0,
+//                 time: timeValue,
+//               });
+//             }
+
+//             const multiBetDetailsArray = [];
+//             const multiMaxLength = Math.max(multiOdds.length, multiStack.length, multiTime.length);
+//             for (let i = 0; i < multiMaxLength; i++) {
+//               let timeValue = multiTime[i] || "";
+//               if (timeValue && !validate12HourTime(timeValue)) {
+//                 sheetErrors.push(
+//                   `Invalid multi time in sheet "${sheetName}", row ${rowIndex + 2}, bet ${i + 1}: "${timeValue}"`
+//                 );
+//                 timeValue = "";
+//               }
+//               if (multiOdds[i] || multiStack[i] || timeValue) {
+//                 multiBetDetailsArray.push({
+//                   odds: parseFloat(multiOdds[i] || "0.00") || 0,
+//                   stack: parseFloat(multiStack[i] || "0.00") || 0,
+//                   time: timeValue,
+//                 });
+//               }
+//             }
+
+//             const userName = row["User Name"] ? String(row["User Name"]).trim() : "";
+//             const agent = row["Agent"] ? String(row["Agent"]).trim() : "";
+//             const sportNames = row["Sport Names"]
+//               ? String(row["Sport Names"]).split("\n").map((val) => val.trim()).filter(Boolean)
+//               : [""];
+//             const eventNames = row["Event Names"]
+//               ? String(row["Event Names"]).split("\n").map((val) => val.trim()).filter(Boolean)
+//               : [""];
+//             const marketNames = row["Market Names"]
+//               ? String(row["Market Names"]).split("\n").map((val) => val.trim()).filter(Boolean)
+//               : [""];
+//             const catchBy = row["Catch By"] ? String(row["Catch By"]).trim() : "";
+//             const proofType = row["Proof Type"]
+//               ? String(row["Proof Type"]).trim()
+//               : "Live Line Betting or Ground Line Betting";
+//             const proofStatus = row["Proof Status"] ? String(row["Proof Status"]).trim() : "Not Submitted";
+
+//             return {
+//               date: normalizedDate,
+//               userName,
+//               agent,
+//               origin: row["Origin"] ? String(row["Origin"]).trim() : "",
+//               sportNames,
+//               eventNames,
+//               marketNames,
+//               betDetails: betDetailsArray,
+//               multiSport: row["Multi Sport"] ? String(row["Multi Sport"]).trim() : "",
+//               multiEvent: row["Multi Event"] ? String(row["Multi Event"]).trim() : "",
+//               multiMarket: row["Multi Market"] ? String(row["Multi Market"]).trim() : "",
+//               multiBetDetails: multiBetDetailsArray,
+//               multiple: {
+//                 enabled: !!(row["Multi Sport"] || row["Multi Event"] || row["Multi Market"]),
+//               },
+//               acBalance: parseFloat(row["Account Balance"]) || 0,
+//               afterVoidBalance: parseFloat(row["After Void Balance"]) || 0,
+//               pl: parseFloat(row["P&L"]) || 0,
+//               catchBy,
+//               proofType,
+//               proofStatus,
+//               remark: row["Remark"] ? String(row["Remark"]).trim() : "",
+//               sheetName,
+//               rowIndex: rowIndex + 2,
+//             };
+//           })
+//           .filter((report) => report !== null);
+
+//         allReports = [...allReports, ...sheetReports];
+//       });
+
+//       if (allReports.length > 70) {
+//         return; // Silently return if more than 70 reports
+//       }
+
+//       if (allReports.length === 0) {
+//         // Dispatch an error to Redux state instead of alert
+//         dispatch({
+//           type: "reports/importReports/rejected",
+//           error: { message: `No valid reports found in the Excel file.\n${sheetErrors.map((msg) => `- ${msg}`).join("\n")}` },
+//         });
+//         return;
+//       }
+
+//       dispatch(importReports(allReports))
+//         .unwrap()
+//         .then(() => {
+//           dispatch(fetchReports()); // Refresh the report list
+//         })
+//         .catch(() => {
+//           // Errors are handled by Redux state and displayed in UI
+//         });
+//     } catch (error) {
+//       // Dispatch error to Redux state instead of alert
+//       dispatch({
+//         type: "reports/importReports/rejected",
+//         error: { message: `Failed to process Excel file: ${error.message}` },
+//       });
+//     }
+//   };
+//   reader.onerror = () => {
+//     // Dispatch error to Redux state instead of alert
+//     dispatch({
+//       type: "reports/importReports/rejected",
+//       error: { message: "Error reading the file. Please try again with a valid Excel file." },
+//     });
+//   };
+//   reader.readAsArrayBuffer(file);
+// };
 
 const handleImportExcel = (event) => {
-  setImportError(null);
-  setImportSuccess(null);
+  console.log("handleImportExcel called with file:", event.target.files[0]?.name);
   const file = event.target.files[0];
   if (!file) {
-    setImportError("Please select a file to import");
+    dispatch({
+      type: "reports/importReports/rejected",
+      payload: { message: "Please select a file to import" },
+    });
     return;
   }
 
@@ -445,260 +724,161 @@ const handleImportExcel = (event) => {
       const data = new Uint8Array(e.target.result);
       const workbook = XLSX.read(data, { type: "array", raw: false, dateNF: "yyyy-mm-dd" });
       let allReports = [];
-      let sheetErrors = [];
       let totalSheetsProcessed = 0;
-      let totalReportsImported = 0;
-      let blankRows = [];
 
-      workbook.SheetNames.forEach((sheetName, sheetIndex) => {
+      workbook.SheetNames.forEach((sheetName) => {
         totalSheetsProcessed++;
         const worksheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { raw: false, blankrows: true });
 
-        if (jsonData.length === 0) {
-          sheetErrors.push(`Sheet "${sheetName}" is empty`);
-          return;
-        }
-
         const sheetReports = jsonData
           .map((row, rowIndex) => {
-            // Check for completely blank row
+            // Skip completely blank rows
             const isRowBlank = Object.values(row).every(
               (value) => value === undefined || value === null || String(value).trim() === ""
             );
-           
-
-            // Define required fields
-            const requiredFields = [
-              "Date",
-              "User Name",
-              "Agent",
-              "Sport Name",
-              "Event Name",
-              "Market Name",
-              "Catch By",
-              "Odds",
-              "Stack",
-              "Time",
-              "Proof Type",
-              "Proof Status",
-            ];
-            // Check for blank or missing required fields
-            const missingFields = requiredFields.filter(
-              (field) => !row[field] || String(row[field]).trim() === ""
-            );
-            if (missingFields.length > 0) {
-              sheetErrors.push(
-                `Sheet "${sheetName}", row ${rowIndex + 2}: Missing or blank required fields: ${missingFields.join(", ")}`
-              );
+            if (isRowBlank) {
               return null;
             }
 
+            // Minimal client-side processing, let backend validate
             let dateValue = row["Date"] ? String(row["Date"]).trim() : "";
             let normalizedDate = normalizeDate(dateValue);
 
-            const betDetailsArray = [];
-            const odds = row["Odds"] ? String(row["Odds"]).split("\n").map((val) => val.trim()) : ["0.00"];
-            const stack = row["Stack"] ? String(row["Stack"]).split("\n").map((val) => val.trim()) : ["0.00"];
-            const time = row["Time"] ? String(row["Time"]).split("\n").map((val) => val.trim()) : ["12:00:00 AM"];
-
-            const maxLength = Math.max(odds.length, stack.length, time.length);
-            for (let i = 0; i < maxLength; i++) {
-              let timeValue = time[i] || "12:00:00 AM";
-              if (timeValue && !validate12HourTime(timeValue)) {
-                try {
-                  const date = new Date(`1970-01-01T${timeValue}Z`);
-                  if (!isNaN(date.getTime())) {
-                    const hours = date.getHours();
-                    const minutes = date.getMinutes();
-                    const seconds = date.getSeconds();
-                    const period = hours >= 12 ? "PM" : "AM";
-                    const hour = hours % 12 === 0 ? 12 : hours % 12;
-                    timeValue = `${hour.toString().padStart(2, "0")}:${minutes
-                      .toString()
-                      .padStart(2, "0")}:${seconds.toString().padStart(2, "0")} ${period}`;
-                  } else {
-                    sheetErrors.push(
-                      `Invalid time in sheet "${sheetName}", row ${rowIndex + 2}, bet ${i + 1}: "${timeValue}"`
-                    );
-                    timeValue = "12:00:00 AM";
-                  }
-                } catch (err) {
-                  sheetErrors.push(
-                    `Invalid time in sheet "${sheetName}", row ${rowIndex + 2}, bet ${i + 1}: "${timeValue}"`
-                  );
-                  timeValue = "12:00:00 AM";
-                }
-              }
-
-              betDetailsArray.push({
-                odds: parseFloat(odds[i] || "0.00") || 0,
-                stack: parseFloat(stack[i] || "0.00") || 0,
-                time: timeValue,
-              });
-            }
-
             const userName = row["User Name"] ? String(row["User Name"]).trim() : "";
             const agent = row["Agent"] ? String(row["Agent"]).trim() : "";
-            const sportName = row["Sport Name"] ? String(row["Sport Name"]).trim() : "";
-            const eventName = row["Event Name"] ? String(row["Event Name"]).trim() : "";
-            const marketName = row["Market Name"] ? String(row["Market Name"]).trim() : "";
+            const origin = row["Origin"] ? String(row["Origin"]).trim() : "";
+            const sportNames = row["Sport Names"]
+              ? String(row["Sport Names"]).split("\n").map((val) => val.trim()).filter(Boolean)
+              : [""];
+            const eventNames = row["Event Names"]
+              ? String(row["Event Names"]).split("\n").map((val) => val.trim()).filter(Boolean)
+              : [""];
+            const marketNames = row["Market Names"]
+              ? String(row["Market Names"]).split("\n").map((val) => val.trim()).filter(Boolean)
+              : [""];
+            const multiSport = row["Multi Sport"] ? String(row["Multi Sport"]).trim() : "";
+            const multiEvent = row["Multi Event"] ? String(row["Multi Event"]).trim() : "";
+            const multiMarket = row["Multi Market"] ? String(row["Multi Market"]).trim() : "";
             const catchBy = row["Catch By"] ? String(row["Catch By"]).trim() : "";
             const proofType = row["Proof Type"]
               ? String(row["Proof Type"]).trim()
               : "Live Line Betting or Ground Line Betting";
             const proofStatus = row["Proof Status"] ? String(row["Proof Status"]).trim() : "Not Submitted";
+            const acBalance = parseFloat(row["Account Balance"]) || 0;
+            const afterVoidBalance = parseFloat(row["After Void Balance"]) || 0;
+            const pl = parseFloat(row["P&L"]) || 0;
+            const remark = row["Remark"] ? String(row["Remark"]).trim() : "";
 
-            // Validate required fields against allowed values
-            if (
-              !userName ||
-              !agent ||
-              !sportName ||
-              !sportNameOptions.includes(sportName) ||
-              !eventName ||
-              !marketName ||
-              !marketNameOptions.includes(marketName) ||
-              !catchBy ||
-              !catchByOptions.includes(catchBy) ||
-              betDetailsArray.length === 0 ||
-              betDetailsArray.some(
-                (detail) => detail.odds === 0 || detail.stack === 0 || !validate12HourTime(detail.time)
-              ) ||
-              !proofTypeOptions.includes(proofType) ||
-              !proofStatusOptions.includes(proofStatus)
-            ) {
-              const invalidFields = [];
-              if (!userName) invalidFields.push("User Name");
-              if (!agent) invalidFields.push("Agent");
-              if (!sportName || !sportNameOptions.includes(sportName)) invalidFields.push(`Sport Name (must be one of: ${sportNameOptions.join(", ")})`);
-              if (!eventName) invalidFields.push("Event Name");
-              if (!marketName || !marketNameOptions.includes(marketName)) invalidFields.push(`Market Name (must be one of: ${marketNameOptions.join(", ")})`);
-              if (!catchBy || !catchByOptions.includes(catchBy)) invalidFields.push(`Catch By (must be one of: ${catchByOptions.join(", ")})`);
-              if (betDetailsArray.length === 0 || betDetailsArray.some((detail) => detail.odds === 0 || detail.stack === 0 || !validate12HourTime(detail.time))) {
-                invalidFields.push("Bet Details (odds, stack, time in 12-hour format)");
+            // Process betDetails
+            const betDetailsArray = [];
+            const odds = row["Odds"] ? String(row["Odds"]).split("\n").map((val) => val.trim()) : ["0.00"];
+            const stack = row["Stack"] ? String(row["Stack"]).split("\n").map((val) => val.trim()) : ["0.00"];
+            const time = row["Time"] ? String(row["Time"]).split("\n").map((val) => val.trim()) : ["12:00:00 AM"];
+            const maxLength = Math.max(odds.length, stack.length, time.length);
+
+            for (let i = 0; i < maxLength; i++) {
+              const oddsValue = parseFloat(odds[i] || "0.00") || 0;
+              const stackValue = parseFloat(stack[i] || "0.00") || 0;
+              const timeValue = time[i] || "12:00:00 AM";
+              betDetailsArray.push({
+                odds: oddsValue,
+                stack: stackValue,
+                time: timeValue,
+              });
+            }
+
+            // Process multiBetDetails
+            const multiBetDetailsArray = [];
+            const multiOdds = row["Multi Odds"] ? String(row["Multi Odds"]).split("\n").map((val) => val.trim()) : [];
+            const multiStack = row["Multi Stack"] ? String(row["Multi Stack"]).split("\n").map((val) => val.trim()) : [];
+            const multiTime = row["Multi Time"] ? String(row["Multi Time"]).split("\n").map((val) => val.trim()) : [];
+            const multiMaxLength = Math.max(multiOdds.length, multiStack.length, multiTime.length);
+
+            for (let i = 0; i < multiMaxLength; i++) {
+              const oddsValue = parseFloat(multiOdds[i] || "0.00") || 0;
+              const stackValue = parseFloat(multiStack[i] || "0.00") || 0;
+              const timeValue = multiTime[i] || "";
+              if (oddsValue > 0 && stackValue > 0 && timeValue) {
+                multiBetDetailsArray.push({
+                  odds: oddsValue,
+                  stack: stackValue,
+                  time: timeValue,
+                });
               }
-              if (!proofTypeOptions.includes(proofType)) invalidFields.push(`Proof Type (must be one of: ${proofTypeOptions.join(", ")})`);
-              if (!proofStatusOptions.includes(proofStatus)) invalidFields.push(`Proof Status (must be one of: ${proofStatusOptions.join(", ")})`);
-
-              sheetErrors.push(
-                `Invalid or missing required fields in sheet "${sheetName}", row ${rowIndex + 2}: ${invalidFields.join(", ")}`
-              );
-              return null;
             }
 
             return {
               date: normalizedDate,
               userName,
               agent,
-              origin: row["Origin"] ? String(row["Origin"]).trim() : "",
-              sportName,
-              eventName,
-              marketName,
-              acBalance: parseFloat(row["Account Balance"]) || 0,
-              afterVoidBalance: parseFloat(row["After Void Balance"]) || 0,
-              pl: parseFloat(row["P&L"]) || 0,
+              origin,
+              sportNames,
+              eventNames,
+              marketNames,
               betDetails: betDetailsArray,
+              multiSport,
+              multiEvent,
+              multiMarket,
+              multiBetDetails: multiBetDetailsArray,
+              multiple: {
+                enabled: !!(multiSport || multiEvent || multiMarket || multiBetDetailsArray.length > 0),
+              },
+              acBalance,
+              afterVoidBalance,
+              pl,
               catchBy,
               proofType,
               proofStatus,
-              remark: row["Remark"] ? String(row["Remark"]).trim() : "",
+              remark,
               sheetName,
               rowIndex: rowIndex + 2,
             };
           })
           .filter((report) => report !== null);
 
-        totalReportsImported += sheetReports.length;
         allReports = [...allReports, ...sheetReports];
       });
 
       if (allReports.length > 70) {
-        setImportError(`Cannot import more than 70 reports at a time across ${totalSheetsProcessed} sheets`);
+        dispatch({
+          type: "reports/importReports/rejected",
+          payload: { message: `Cannot import more than 70 reports at a time across ${totalSheetsProcessed} sheets` },
+        });
         return;
       }
 
       if (allReports.length === 0) {
-        const errorMessages = [
-          ...blankRows.map(msg => `Blank rows detected: ${msg}`),
-          ...sheetErrors.map(msg => `Invalid data: ${msg}`),
-          "No valid reports found in the Excel file."
-        ];
-        setImportError(errorMessages.length > 0 ? errorMessages.map(msg => `- ${msg}`).join("\n") : "No valid reports found in the Excel file.");
+        dispatch({
+          type: "reports/importReports/rejected",
+          payload: { message: "No valid reports found in the Excel file." },
+        });
         return;
       }
 
+      console.log('Dispatching importReports with:', allReports);
       dispatch(importReports(allReports))
-        .then((action) => {
-          if (action.meta.requestStatus === "fulfilled") {
-            dispatch(fetchReports());
-            if (action.payload && Array.isArray(action.payload.data)) {
-              if (action.payload.data.length === 0) {
-                setImportSuccess(
-                  `No new reports imported from ${totalSheetsProcessed} sheets. All entries were duplicates or invalid.`
-                );
-              } else {
-                setImportSuccess(
-                  `${action.payload.data.length} report(s) imported successfully from ${totalSheetsProcessed} sheets`
-                );
-              }
-              const errorMessages = [];
-              if (action.payload.errors && action.payload.errors.length > 0) {
-                errorMessages.push(...action.payload.errors.map(err => `Sheet "${err.sheetName}", row ${err.rowIndex}: ${err.msg}`));
-              }
-              if (sheetErrors.length > 0) {
-                errorMessages.push(...sheetErrors.map(msg => `Invalid data: ${msg}`));
-              }
-              if (blankRows.length > 0) {
-                errorMessages.push(...blankRows.map(msg => `Blank rows detected: ${msg}`));
-                
-                
-              }
-            
-              if (errorMessages.length > 0) {
-                setImportError(`Errors during import from ${totalSheetsProcessed} sheets:\n${errorMessages.map(msg => `- ${msg}`).join("\n")}`);
-              } else {
-                setImportError(null);
-              }
-            } else {
-              setImportError("Unexpected server response format. Please try again or check server logs.");
-            }
-          } else {
-            let errorMessages = ["Failed to save imported reports"];
-            if (action.payload?.message) {
-              errorMessages = [action.payload.message];
-              if (action.payload.errors) {
-                errorMessages.push(...action.payload.errors.map(err => `Sheet "${err.sheetName}", row ${err.rowIndex}: ${err.msg}`));
-              }
-            } else if (action.error?.message) {
-              errorMessages = [action.error.message];
-            }
-            if (blankRows.length > 0) {
-              errorMessages.push(...blankRows.map(msg => `Blank rows detected: ${msg}`));
-            }
-            setImportError(`Failed to import reports from ${totalSheetsProcessed} sheets:\n${errorMessages.map(msg => `- ${msg}`).join("\n")}`);
-          }
+        .unwrap()
+        .then(() => {
+          dispatch(fetchReports()); // Refresh reports after import
         })
         .catch((error) => {
-          console.error("Error during import dispatch:", error);
-          let errorMessages = [`Failed to import reports from ${totalSheetsProcessed} sheets due to a server error: ${error.message}`];
-          if (blankRows.length > 0) {
-            errorMessages.push(...blankRows.map(msg => `Blank rows detected: ${msg}`));
-          }
-          setImportError(errorMessages.map(msg => `- ${msg}`).join("\n"));
+          console.error('Import failed:', error);
+          // Error is handled by importReports.rejected reducer
         });
     } catch (error) {
-      console.error("Error importing Excel file:", error);
-      let errorMessages = [
-        `Failed to process the Excel file across ${totalSheetsProcessed} sheets. Ensure it is in the correct format with valid dates, required fields, valid Proof Type, and valid time in 12-hour format (e.g., 12:00:00 AM).`
-      ];
-      if (blankRows.length > 0) {
-        errorMessages.push(...blankRows.map(msg => `Blank rows detected: ${msg}`));
-      }
-      setImportError(errorMessages.map(msg => `- ${msg}`).join("\n"));
+      console.error('Excel processing error:', error);
+      dispatch({
+        type: "reports/importReports/rejected",
+        payload: { message: `Failed to process the Excel file: ${error.message}` },
+      });
     }
   };
   reader.onerror = () => {
-    setImportError("Error reading the file. Please try again with a valid Excel file.");
+    dispatch({
+      type: "reports/importReports/rejected",
+      payload: { message: "Error reading the file. Please try again with a valid Excel file." },
+    });
   };
   reader.readAsArrayBuffer(file);
 };
@@ -743,9 +923,12 @@ const handleImportExcel = (event) => {
           (report.userName && report.userName.toLowerCase().includes(searchLower)) ||
           (report.agent && report.agent.toLowerCase().includes(searchLower)) ||
           (report.origin && report.origin.toLowerCase().includes(searchLower)) ||
-          (report.sportName && report.sportName.toLowerCase().includes(searchLower)) ||
-          (report.eventName && report.eventName.toLowerCase().includes(searchLower)) ||
-          (report.marketName && report.marketName.toLowerCase().includes(searchLower)) ||
+          (report.sportNames && report.sportNames.some((name) => name.toLowerCase().includes(searchLower))) ||
+          (report.eventNames && report.eventNames.some((name) => name.toLowerCase().includes(searchLower))) ||
+          (report.marketNames && report.marketNames.some((name) => name.toLowerCase().includes(searchLower))) ||
+          (report.multiSport && report.multiSport.toLowerCase().includes(searchLower)) ||
+          (report.multiEvent && report.multiEvent.toLowerCase().includes(searchLower)) ||
+          (report.multiMarket && report.multiMarket.toLowerCase().includes(searchLower)) ||
           (report.catchBy && report.catchBy.toLowerCase().includes(searchLower)) ||
           (report.proofType && report.proofType.toLowerCase().includes(searchLower)) ||
           (report.proofStatus && report.proofStatus.toLowerCase().includes(searchLower)) ||
@@ -781,22 +964,28 @@ const handleImportExcel = (event) => {
     }
 
     if (filterData.sportName) {
-      filtered = filtered.filter((report) => report.sportName === filterData.sportName);
+      filtered = filtered.filter((report) =>
+        report.sportNames.includes(filterData.sportName)
+      );
     }
 
     if (filterData.eventName) {
       filtered = filtered.filter((report) =>
-        report.eventName?.toLowerCase().includes(filterData.eventName.toLowerCase())
+        report.eventNames.some((name) =>
+          name.toLowerCase().includes(filterData.eventName.toLowerCase())
+        )
       );
     }
 
     if (filterData.marketName) {
-      filtered = filtered.filter((report) => report.marketName === filterData.marketName);
+      filtered = filtered.filter((report) =>
+        report.marketNames.includes(filterData.marketName)
+      );
     }
 
     if (filterData.acBalanceMin || filterData.acBalanceMax) {
       filtered = filtered.filter((report) => {
-        const balance = Number(report.acBalance) || 0;
+        const balance = Number(report.acBalance);
         const min = filterData.acBalanceMin ? Number(filterData.acBalanceMin) : null;
         const max = filterData.acBalanceMax ? Number(filterData.acBalanceMax) : null;
         return (!min || balance >= min) && (!max || balance <= max);
@@ -805,7 +994,7 @@ const handleImportExcel = (event) => {
 
     if (filterData.afterVoidBalanceMin || filterData.afterVoidBalanceMax) {
       filtered = filtered.filter((report) => {
-        const balance = Number(report.afterVoidBalance) || 0;
+        const balance = Number(report.afterVoidBalance);
         const min = filterData.afterVoidBalanceMin ? Number(filterData.afterVoidBalanceMin) : null;
         const max = filterData.afterVoidBalanceMax ? Number(filterData.afterVoidBalanceMax) : null;
         return (!min || balance >= min) && (!max || balance <= max);
@@ -814,7 +1003,7 @@ const handleImportExcel = (event) => {
 
     if (filterData.plMin || filterData.plMax) {
       filtered = filtered.filter((report) => {
-        const pl = Number(report.pl) || 0;
+        const pl = Number(report.pl);
         const min = filterData.plMin ? Number(filterData.plMin) : null;
         const max = filterData.plMax ? Number(filterData.plMax) : null;
         return (!min || pl >= min) && (!max || pl <= max);
@@ -823,9 +1012,8 @@ const handleImportExcel = (event) => {
 
     if (filterData.oddsMin || filterData.oddsMax) {
       filtered = filtered.filter((report) =>
-        Array.isArray(report.betDetails) &&
         report.betDetails.some((detail) => {
-          const odds = Number(detail.odds) || 0;
+          const odds = Number(detail.odds);
           const min = filterData.oddsMin ? Number(filterData.oddsMin) : null;
           const max = filterData.oddsMax ? Number(filterData.oddsMax) : null;
           return (!min || odds >= min) && (!max || odds <= max);
@@ -835,9 +1023,8 @@ const handleImportExcel = (event) => {
 
     if (filterData.stackMin || filterData.stackMax) {
       filtered = filtered.filter((report) =>
-        Array.isArray(report.betDetails) &&
         report.betDetails.some((detail) => {
-          const stack = Number(detail.stack) || 0;
+          const stack = Number(detail.stack);
           const min = filterData.stackMin ? Number(filterData.stackMin) : null;
           const max = filterData.stackMax ? Number(filterData.stackMax) : null;
           return (!min || stack >= min) && (!max || stack <= max);
@@ -870,1015 +1057,1163 @@ const handleImportExcel = (event) => {
     const sorted = [...filteredReports];
     if (sortConfig.key) {
       sorted.sort((a, b) => {
-        let aValue = a[sortConfig.key];
-        let bValue = b[sortConfig.key];
+        const aValue = sortConfig.key.includes(".")
+          ? sortConfig.key.split(".").reduce((obj, key) => obj[key] || "", a)
+          : a[sortConfig.key];
+        const bValue = sortConfig.key.includes(".")
+          ? sortConfig.key.split(".").reduce((obj, key) => obj[key] || "", b)
+          : b[sortConfig.key];
 
         if (sortConfig.key === "date") {
-          aValue = new Date(aValue);
-          bValue = new Date(bValue);
+          return sortConfig.direction === "asc"
+            ? new Date(aValue) - new Date(bValue)
+            : new Date(bValue) - new Date(aValue);
+        } else if (["acBalance", "afterVoidBalance", "pl"].includes(sortConfig.key)) {
+          return sortConfig.direction === "asc"
+            ? Number(aValue) - Number(bValue)
+            : Number(bValue) - Number(aValue);
+        } else if (sortConfig.key === "betDetails.odds") {
+          const aOdds = a.betDetails[0]?.odds || 0;
+          const bOdds = b.betDetails[0]?.odds || 0;
+          return sortConfig.direction === "asc"
+            ? aOdds - bOdds
+            : bOdds - aOdds;
+        } else {
+          return sortConfig.direction === "asc"
+            ? String(aValue).localeCompare(String(bValue))
+            : String(bValue).localeCompare(String(aValue));
         }
-
-        if (["acBalance", "afterVoidBalance", "pl"].includes(sortConfig.key)) {
-          aValue = Number(aValue) || 0;
-          bValue = Number(bValue) || 0;
-        }
-
-        if (typeof aValue === "string" && typeof bValue === "string") {
-          aValue = aValue.toLowerCase();
-          bValue = bValue.toLowerCase();
-        }
-
-        if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
-        if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
-        return 0;
       });
     }
     return sorted;
   }, [filteredReports, sortConfig]);
 
-  const requestSort = (key) => {
+  const totalPages = Math.ceil(sortedReports.length / entriesPerPage);
+  const paginatedReports = sortedReports.slice(
+    (currentPage - 1) * entriesPerPage,
+    currentPage * entriesPerPage
+  );
+
+  const handleSort = (key) => {
     setSortConfig((prev) => ({
       key,
       direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
     }));
-    setCurrentPage(1);
   };
-
-  const totalEntries = sortedReports.length;
-  const totalPages = Math.ceil(totalEntries / entriesPerPage);
-  const startIndex = (currentPage - 1) * entriesPerPage;
-  const endIndex = startIndex + entriesPerPage;
-  const paginatedReports = sortedReports.slice(startIndex, endIndex);
 
   const handlePageChange = (page) => {
     if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
+  const handleGotoPage = () => {
+    const page = parseInt(gotoPage, 10);
+    if (!isNaN(page) && page >= 1 && page <= totalPages) {
       setCurrentPage(page);
       setGotoPage("");
     }
   };
 
-  const handleEntriesPerPageChange = (e) => {
-    setEntriesPerPage(Number(e.target.value));
-    setCurrentPage(1);
-    setGotoPage("");
-  };
-
-  const handleJumpToPage = () => {
-    const pageNum = parseInt(gotoPage, 10);
-    if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {
-      setCurrentPage(pageNum);
-      setGotoPage("");
-    } else {
-      alert(`Please enter a valid page number between 1 and ${totalPages}`);
-      setGotoPage("");
-    }
-  };
-
-  const getPageNumbers = () => {
-    const maxPagesToShow = 3;
-    const pages = [];
-    let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
-    let endPage = startPage + maxPagesToShow - 1;
-
-    if (endPage > totalPages) {
-      endPage = totalPages;
-      startPage = Math.max(1, endPage - maxPagesToShow + 1);
-    }
-
-    for (let i = startPage; i <= endPage; i++) {
-      pages.push(i);
-    }
-    return pages;
-  };
-
-const renderList = () => (
-  <div className="mx-auto px-4 py-8 flex">
-    {/* Main Content */}
-    <div className={`flex-1 transition-all duration-300 ${filterOpen ? "mr-80" : "mr-0"}`}>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Report Management</h1>
-        <div className="flex items-center space-x-4">
-          <button
-            onClick={() => setFilterOpen(true)}
-            className="bg-[#FFA500] text-white cursor-pointer p-[10px] px-[20px] rounded-2xl text-[16px] font-bold flex justify-center items-center"
-          >
-            <FaFilter className="mr-2" />
-            Filter
-          </button>
-          <button
-            onClick={resetFilters}
-            className="bg-gray-500 text-white cursor-pointer p-[10px] px-[20px] rounded-2xl text-[16px] font-bold flex justify-center items-center"
-          >
-            Reset Filters
-          </button>
-          <label className="bg-[#003465] text-white cursor-pointer p-[10px] px-[20px] rounded-2xl text-[16px] font-bold flex justify-center items-center">
-            Import Excel
-            <input
-              type="file"
-              accept=".xlsx, .xls"
-              onChange={handleImportExcel}
-              className="hidden"
-            />
-          </label>
-          <button
-            onClick={handleExportExcel}
-            className="bg-blue-500 text-white cursor-pointer p-[10px] px-[20px] rounded-2xl text-[16px] font-bold flex justify-center items-center"
-          >
-            Export Excel
-          </button>
-          <button
-            onClick={() => setView("create")}
-            className="bg-[#00008B] text-white cursor-pointer p-[10px] px-[20px] rounded-2xl text-[16px] font-bold flex justify-center items-center"
-          >
-            <span className="font-bold text-lg mr-1">
-              <FaPlus />
-            </span>
-            Add Report
-          </button>
-        </div>
-      </div>
-
-      <div className="mb-4 flex items-center space-x-4">
-        <input
-          type="text"
-          placeholder="Quick search by user, agent, origin, sport, event, market, catch by, proof type, proof status, or remark..."
-          value={searchTerm}
-          onChange={(e) => {
-            setSearchTerm(e.target.value);
-            setCurrentPage(1);
-          }}
-          className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-        />
-      </div>
-
-      {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-          {typeof error === "string" ? error : JSON.stringify(error)}
-        </div>
-      )}
-      {exportError && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-          {exportError}
-        </div>
-      )}
-      {importError && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-4 rounded mb-4">
-          {importError}
-        </div>
-      )}
-      {importSuccess && (
-        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-4 rounded mb-4">
-          {importSuccess}
-        </div>
-      )}
-      {loading && (
-        <div className="flex justify-center my-8">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#00008B]"></div>
-        </div>
-      )}
-
-      {Array.isArray(paginatedReports) && paginatedReports.length > 0 ? (
-        <div className="bg-white shadow-md rounded-lg overflow-hidden overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                {[
-                  { key: "date", label: "Date" },
-                  { key: "userName", label: "User Name" },
-                  { key: "agent", label: "Agent" },
-                  { key: "sportName", label: "Sport" },
-                  { key: "eventName", label: "Event" },
-                  { key: "marketName", label: "Market" },
-                  { key: "acBalance", label: "A/C Balance" },
-                  { key: "afterVoidBalance", label: "After Void" },
-                  { key: "pl", label: "P&L" },
-                  { key: "odds", label: "Odds" },
-                  { key: "stack", label: "Stack" },
-                  { key: "time", label: "Time" },
-                  { key: "catchBy", label: "Catch By" },
-                  { key: "proofType", label: "Proof Type" },
-                  { key: "proofStatus", label: "Proof Status" },
-                  { key: "actions", label: "Actions" },
-                ].map((header) => (
-                  <th
-                    key={header.key}
-                    scope="col"
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() =>
-                      header.key !== "actions" &&
-                      !["odds", "stack", "time"].includes(header.key) &&
-                      requestSort(header.key)
-                    }
-                  >
-                    <div className="flex items-center">
-                      {header.label}
-                      {header.key !== "actions" && !["odds", "stack", "time"].includes(header.key) && (
-                        <span className="ml-2">
-                          {sortConfig.key === header.key ? (
-                            sortConfig.direction === "asc" ? (
-                              <FaSortUp />
-                            ) : (
-                              <FaSortDown />
-                            )
-                          ) : (
-                            <FaSort className="text-gray-300" />
-                          )}
-                        </span>
-                      )}
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {paginatedReports.map((report) => (
-                <tr key={report._id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {report.date ? new Date(report.date).toLocaleDateString("en-GB") : "-"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {report.userName || "-"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {report.agent || "-"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {report.sportName || "-"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {report.eventName || "-"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {report.marketName || "-"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {typeof report.acBalance === "number" ? report.acBalance.toFixed(2) : "0.00"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {typeof report.afterVoidBalance === "number"
-                      ? report.afterVoidBalance.toFixed(2)
-                      : "0.00"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {typeof report.pl === "number" ? report.pl.toFixed(2) : "0.00"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-pre-wrap text-sm text-gray-900">
-                    {Array.isArray(report.betDetails) && report.betDetails.length > 0
-                      ? report.betDetails.map((detail) => detail.odds?.toFixed(2) || "0.00").join(", ")
-                      : "-"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-pre-wrap text-sm text-gray-900">
-                    {Array.isArray(report.betDetails) && report.betDetails.length > 0
-                      ? report.betDetails.map((detail) => detail.stack?.toFixed(2) || "0.00").join(", ")
-                      : "-"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-pre-wrap text-sm text-gray-900">
-                    {Array.isArray(report.betDetails) && report.betDetails.length > 0
-                      ? report.betDetails.map((detail) => detail.time || "12:00:00 AM").join(", ")
-                      : "-"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {report.catchBy || "-"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {report.proofType || "-"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {report.proofStatus || "-"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex space-x-4">
-                      <button
-                        onClick={() => handlePreview(report)}
-                        className="text-blue-600 hover:text-blue-900"
-                        title="Preview"
-                      >
-                        <FaEye />
-                      </button>
-                      <button
-                        onClick={() => handleEdit(report._id)}
-                        className="text-indigo-600 hover:text-indigo-900"
-                        title="Edit"
-                      >
-                        <FaEdit />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(report._id)}
-                        className="text-red-600 hover:text-red-900"
-                        title="Delete"
-                      >
-                        <FaTrash />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        !loading && (
-          <div className="text-center py-8 text-gray-500">No reports found.</div>
-        )
-      )}
-
-      <div className="mt-6 flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <span className="text-sm text-gray-700">
-            Showing {startIndex + 1} to {Math.min(endIndex, totalEntries)} of {totalEntries} entries
-          </span>
-          <select
-            value={entriesPerPage}
-            onChange={handleEntriesPerPageChange}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-          >
-            {[10, 25, 50, 100, 150, 200].map((num) => (
-              <option key={num} value={num}>
-                {num} entry
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => handlePageChange(currentPage - 1)}
-            disabled={currentPage === 1}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Previous
-          </button>
-          {getPageNumbers().map((page) => (
+  return (
+    <div className="container mx-auto p-4">
+      {view === "list" ? (
+        <div>
+          <h1 className="text-2xl font-bold mb-4">Reports</h1>
+          {error && <div className="text-red-500 mb-4">{error}</div>}
+          {exportError && <div className="text-red-500 mb-4">{exportError}</div>}
+          {(importError || importSuccess) && (
+            <div className="mb-4 p-4 bg-gray-100 rounded relative">
+              {importSuccess && (
+                <div className="text-green-500 mb-2">{importSuccess}</div>
+              )}
+              {importError && (
+                <div className="text-red-500">
+                  <p className="font-semibold">Import Errors:</p>
+                  <ul className="list-disc pl-5 whitespace-pre-line">
+                    {importError.split('\n').map((error, index) => (
+                      <li key={index}>{error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <button
+                onClick={() => dispatch(clearError())}
+                className="absolute top-2 right-2 bg-red-500 text-white px-2 py-1 rounded text-sm"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+          <div className="flex justify-between mb-4">
             <button
-              key={page}
-              onClick={() => handlePageChange(page)}
-              className={`px-3 py-2 border border-gray-300 rounded-lg text-sm ${
-                currentPage === page ? "bg-blue-500 text-white" : "bg-white text-gray-700"
-              }`}
+              onClick={() => setView("create")}
+              className="bg-blue-500 text-white px-4 py-2 rounded flex items-center"
             >
-              {page}
+              <FaPlus className="mr-2" /> Add Report
             </button>
-          ))}
-          <button
-            onClick={() => handlePageChange(currentPage + 1)}
-            disabled={currentPage === totalPages}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Next
-          </button>
-          <div className="flex items-center space-x-2">
-            <input
-              type="number"
-              value={gotoPage}
-              onChange={(e) => setGotoPage(e.target.value)}
-              placeholder="Go to page"
-              className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              onClick={handleJumpToPage}
-              className="px-3 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600"
-            >
-              Go
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    {/* Filter Sidebar */}
-    {filterOpen && (
-      <div className="fixed top-0 right-0 h-full w-80 bg-white p-6 shadow-lg z-50 overflow-y-auto">
-        <h2 className="text-xl font-bold mb-4">Advanced Filter</h2>
-        <div className="grid grid-cols-1 gap-4">
-          <div className="flex space-x-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700">Start Date to End Date</label>
+            <div className="flex space-x-2">
+              <button
+                onClick={handleExportExcel}
+                className="bg-green-500 text-white px-4 py-2 rounded"
+              >
+                Export to Excel
+              </button>
               <input
-                type="date"
-                name="startDate"
-                value={filterData.startDate}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
+                type="file"
+                accept=".xlsx, .xls"
+                onChange={handleImportExcel}
+                className="hidden"
+                id="importExcel"
               />
-            </div>
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 opacity-0">End Date</label>
-              <input
-                type="date"
-                name="endDate"
-                value={filterData.endDate}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
+              <label
+                htmlFor="importExcel"
+                className="bg-yellow-500 text-white px-4 py-2 rounded cursor-pointer"
+              >
+                Import from Excel
+              </label>
+              <button
+                onClick={() => setFilterOpen(!filterOpen)}
+                className="bg-gray-500 text-white px-4 py-2 rounded flex items-center"
+              >
+                <FaFilter className="mr-2" /> Filters
+              </button>
             </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">User Name</label>
-            <input
-              type="text"
-              name="userName"
-              value={filterData.userName}
-              onChange={handleFilterChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Agent</label>
-            <input
-              type="text"
-              name="agent"
-              value={filterData.agent}
-              onChange={handleFilterChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Origin</label>
-            <input
-              type="text"
-              name="origin"
-              value={filterData.origin}
-              onChange={handleFilterChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Sport Name</label>
-            <select
-              name="sportName"
-              value={filterData.sportName}
-              onChange={handleFilterChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-            >
-              <option value="">Select Sport</option>
-              {sportNameOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Event Name</label>
-            <input
-              type="text"
-              name="eventName"
-              value={filterData.eventName}
-              onChange={handleFilterChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Market Name</label>
-            <select
-              name="marketName"
-              value={filterData.marketName}
-              onChange={handleFilterChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-            >
-              <option value="">Select Market</option>
-              {marketNameOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex space-x-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700">Account Balance Min to Max</label>
-              <input
-                type="number"
-                name="acBalanceMin"
-                value={filterData.acBalanceMin}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 opacity-0">Account Balance Max</label>
-              <input
-                type="number"
-                name="acBalanceMax"
-                value={filterData.acBalanceMax}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-          </div>
-          <div className="flex space-x-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700">After Void Balance Min to Max</label>
-              <input
-                type="number"
-                name="afterVoidBalanceMin"
-                value={filterData.afterVoidBalanceMin}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 opacity-0">After Void Balance Max</label>
-              <input
-                type="number"
-                name="afterVoidBalanceMax"
-                value={filterData.afterVoidBalanceMax}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-          </div>
-          <div className="flex space-x-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700">P&L Min to Max</label>
-              <input
-                type="number"
-                name="plMin"
-                value={filterData.plMin}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 opacity-0">P&L Max</label>
-              <input
-                type="number"
-                name="plMax"
-                value={filterData.plMax}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-          </div>
-          <div className="flex space-x-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700">Odds Min to Max</label>
-              <input
-                type="number"
-                name="oddsMin"
-                value={filterData.oddsMin}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 opacity-0">Odds Max</label>
-              <input
-                type="number"
-                name="oddsMax"
-                value={filterData.oddsMax}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-          </div>
-          <div className="flex space-x-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700">Stack Min to Max</label>
-              <input
-                type="number"
-                name="stackMin"
-                value={filterData.stackMin}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 opacity-0">Stack Max</label>
-              <input
-                type="number"
-                name="stackMax"
-                value={filterData.stackMax}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Catch By</label>
-            <select
-              name="catchBy"
-              value={filterData.catchBy}
-              onChange={handleFilterChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-            >
-              <option value="">Select Catch By</option>
-              {catchByOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Proof Type</label>
-            <select
-              name="proofType"
-              value={filterData.proofType}
-              onChange={handleFilterChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-            >
-              <option value="">Select Proof Type</option>
-              {proofTypeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Proof Status</label>
-            <select
-              name="proofStatus"
-              value={filterData.proofStatus}
-              onChange={handleFilterChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-            >
-              <option value="">Select Status</option>
-              {proofStatusOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Remark</label>
-            <input
-              type="text"
-              name="remark"
-              value={filterData.remark}
-              onChange={handleFilterChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg"
-            />
-          </div>
-        </div>
-        <div className="mt-6 flex justify-end space-x-4">
-          <button
-            onClick={() => setFilterOpen(false)}
-            className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-400"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => {
-              setFilterOpen(false);
-              setCurrentPage(1);
-            }}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600"
-          >
-            Apply Filters
-          </button>
-        </div>
-      </div>
-    )}
-  </div>
-);
-
-  const renderForm = () => (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold mb-4">{view === "edit" ? "Edit Report" : "Create Report"}</h1>
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Date</label>
-            <input
-              type="date"
-              name="date"
-              value={formData.date}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">User Name</label>
-            <input
-              type="text"
-              name="userName"
-              value={formData.userName}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Agent</label>
-            <input
-              type="text"
-              name="agent"
-              value={formData.agent}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Origin</label>
-            <input
-              type="text"
-              name="origin"
-              value={formData.origin}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Sport Name</label>
-            <select
-              name="sportName"
-              value={formData.sportName}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Select Sport</option>
-              {sportNameOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Event Name</label>
-            <input
-              type="text"
-              name="eventName"
-              value={formData.eventName}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Market Name</label>
-            <select
-              name="marketName"
-              value={formData.marketName}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Select Market</option>
-              {marketNameOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Account Balance</label>
-            <input
-              type="number"
-              name="acBalance"
-              value={formData.acBalance}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">After Void Balance</label>
-            <input
-              type="number"
-              name="afterVoidBalance"
-              value={formData.afterVoidBalance}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">P&L</label>
-            <input
-              type="number"
-              name="pl"
-              value={formData.pl}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div className="col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Bet Details</label>
-            {formData.betDetails.map((detail, index) => (
-              <div key={`betDetail-${index}`} className="flex items-center space-x-4 mb-4">
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-600">Odds</label>
+          {filterOpen && (
+            <div className="bg-gray-100 p-4 rounded mb-4">
+              <h2 className="text-lg font-semibold mb-2">Filters</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium">Start Date</label>
                   <input
-                    type="number"
-                    step="0.01"
-                    name="odds"
-                    value={detail.odds}
-                    onChange={(e) => handleInputChange(e, index)}
-                    placeholder="Odds (e.g., 2.50)"
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    type="date"
+                    name="startDate"
+                    value={filterData.startDate}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
                   />
                 </div>
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-600">Stack</label>
+                <div>
+                  <label className="block text-sm font-medium">End Date</label>
                   <input
-                    type="number"
-                    step="0.01"
-                    name="stack"
-                    value={detail.stack}
-                    onChange={(e) => handleInputChange(e, index)}
-                    placeholder="Stack (e.g., 100.00)"
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    type="date"
+                    name="endDate"
+                    value={filterData.endDate}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
                   />
                 </div>
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-600">Time</label>
+                <div>
+                  <label className="block text-sm font-medium">User Name</label>
                   <input
                     type="text"
-                    name="time"
-                    value={detail.time}
-                    onChange={(e) => handleInputChange(e, index)}
-                    placeholder="Time (e.g., 12:00:00 AM)"
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    name="userName"
+                    value={filterData.userName}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
                   />
                 </div>
-                {formData.betDetails.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeBetDetail(index)}
-                    className="mt-6 px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                <div>
+                  <label className="block text-sm font-medium">Agent</label>
+                  <input
+                    type="text"
+                    name="agent"
+                    value={filterData.agent}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Origin</label>
+                  <input
+                    type="text"
+                    name="origin"
+                    value={filterData.origin}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Sport Name</label>
+                  <select
+                    name="sportName"
+                    value={filterData.sportName}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
                   >
-                    Remove
-                  </button>
-                )}
+                    <option value="">All</option>
+                    {sportNameOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Event Name</label>
+                  <input
+                    type="text"
+                    name="eventName"
+                    value={filterData.eventName}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Market Name</label>
+                  <select
+                    name="marketName"
+                    value={filterData.marketName}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="">All</option>
+                    {marketNameOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Catch By</label>
+                  <select
+                    name="catchBy"
+                    value={filterData.catchBy}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="">All</option>
+                    {catchByOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Proof Type</label>
+                  <select
+                    name="proofType"
+                    value={filterData.proofType}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="">All</option>
+                    {proofTypeOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Proof Status</label>
+                  <select
+                    name="proofStatus"
+                    value={filterData.proofStatus}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="">All</option>
+                    {proofStatusOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Remark</label>
+                  <input
+                    type="text"
+                    name="remark"
+                    value={filterData.remark}
+                    onChange={handleFilterChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
               </div>
-            ))}
-            <button
-              type="button"
-              onClick={addBetDetail}
-              className="mt-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-            >
-              Add Bet Detail
-            </button>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Catch By</label>
-            <select
-              name="catchBy"
-              value={formData.catchBy}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Select Catch By</option>
-              {catchByOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Proof Type</label>
-            <select
-              name="proofType"
-              value={formData.proofType}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              {proofTypeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Proof Status</label>
-            <select
-              name="proofStatus"
-              value={formData.proofStatus}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              {proofStatusOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="col-span-2">
-            <label className="block text-sm font-medium text-gray-700">Remark</label>
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={resetFilters}
+                  className="bg-red-500 text-white px-4 py-2 rounded"
+                >
+                  Reset Filters
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="mb-4">
             <input
               type="text"
-              name="remark"
-              value={formData.remark}
-              onChange={handleInputChange}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              placeholder="Search..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full p-2 border rounded"
             />
           </div>
-        </div>
-        <div className="mt-6 flex justify-end space-x-4">
-          <button
-            type="button"
-            onClick={handleCancel}
-            className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-          >
-            {view === "edit" ? "Update Report" : "Create Report"}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
+          {loading ? (
+            <div>Loading...</div>
+          ) : (
+            <>
+              <div>
+  <table className="min-w-full bg-white border table-fixed">
+    <thead>
+      <tr className="bg-gray-200">
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("date")}
+        >
+          Date
+          {sortConfig.key === "date" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("userName")}
+        >
+          User Name
+          {sortConfig.key === "userName" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("agent")}
+        >
+          Agent
+          {sortConfig.key === "agent" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("origin")}
+        >
+          Origin
+          {sortConfig.key === "origin" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("sportNames")}
+        >
+          Sport Names
+          {sortConfig.key === "sportNames" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("eventNames")}
+        >
+          Event Names
+          {sortConfig.key === "eventNames" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("marketNames")}
+        >
+          Market Names
+          {sortConfig.key === "marketNames" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("betDetails.odds")}
+        >
+          Odds
+          {sortConfig.key === "betDetails.odds" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th className="px-2 py-1 border text-xs">Stack</th>
+        <th className="px-2 py-1 border text-xs">Time</th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("acBalance")}
+        >
+          Account Balance
+          {sortConfig.key === "acBalance" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("afterVoidBalance")}
+        >
+          After Void Balance
+          {sortConfig.key === "afterVoidBalance" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("pl")}
+        >
+          P&L
+          {sortConfig.key === "pl" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("catchBy")}
+        >
+          Catch By
+          {sortConfig.key === "catchBy" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("proofType")}
+        >
+          Proof Type
+          {sortConfig.key === "proofType" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("proofStatus")}
+        >
+          Proof Status
+          {sortConfig.key === "proofStatus" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th
+          className="px-2 py-1 border cursor-pointer text-xs"
+          onClick={() => handleSort("remark")}
+        >
+          Remark
+          {sortConfig.key === "remark" ? (
+            sortConfig.direction === "asc" ? (
+              <FaSortUp className="inline ml-1" />
+            ) : (
+              <FaSortDown className="inline ml-1" />
+            )
+          ) : (
+            <FaSort className="inline ml-1" />
+          )}
+        </th>
+        <th className="px-2 py-1 border text-xs">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {paginatedReports.map((report) => {
+        const sportNames = Array.isArray(report.sportNames) ? [...report.sportNames] : [];
+        const eventNames = Array.isArray(report.eventNames) ? [...report.eventNames] : [];
+        const marketNames = Array.isArray(report.marketNames) ? [...report.marketNames] : [];
+        const betDetails = Array.isArray(report.betDetails) ? [...report.betDetails] : [];
 
-  const renderPreview = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg shadow-lg max-w-2xl w-full">
-        <h2 className="text-xl font-bold mb-4">Report Preview</h2>
-        {currentReport && (
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p>
-                <strong>Date:</strong>{" "}
-                {currentReport.date ? new Date(currentReport.date).toLocaleDateString("en-GB") : "-"}
-              </p>
-              <p>
-                <strong>User Name:</strong> {currentReport.userName || "-"}
-              </p>
-              <p>
-                <strong>Agent:</strong> {currentReport.agent || "-"}
-              </p>
-              <p>
-                <strong>Origin:</strong> {currentReport.origin || "-"}
-              </p>
-              <p>
-                <strong>Sport Name:</strong> {currentReport.sportName || "-"}
-              </p>
-              <p>
-                <strong>Event Name:</strong> {currentReport.eventName || "-"}
-              </p>
-              <p>
-                <strong>Market Name:</strong> {currentReport.marketName || "-"}
-              </p>
-              <p>
-                <strong>Account Balance:</strong>{" "}
-                {typeof currentReport.acBalance === "number"
-                  ? currentReport.acBalance.toFixed(2)
-                  : "0.00"}
-              </p>
-            </div>
-            <div>
-              <p>
-                <strong>After Void Balance:</strong>{" "}
-                {typeof currentReport.afterVoidBalance === "number"
-                  ? currentReport.afterVoidBalance.toFixed(2)
-                  : "0.00"}
-              </p>
-              <p>
-                <strong>P&L:</strong>{" "}
-                {typeof currentReport.pl === "number" ? currentReport.pl.toFixed(2) : "0.00"}
-              </p>
-              <p>
-                <strong>Bet Details:</strong>
-              </p>
-              {Array.isArray(currentReport.betDetails) && currentReport.betDetails.length > 0 ? (
-                <ul className="list-disc pl-5">
+        if (report.multiple?.enabled) {
+          if (report.multiSport) sportNames.push(report.multiSport);
+          if (report.multiEvent) eventNames.push(report.multiEvent);
+          if (report.multiMarket) marketNames.push(report.multiMarket);
+          if (Array.isArray(report.multiBetDetails)) {
+            betDetails.push(...report.multiBetDetails);
+          }
+        }
+
+        return betDetails.map((detail, index) => (
+          <tr key={`${report._id}-${index}`} className="border">
+            <td className="px-2 py-1 border text-xs truncate">
+              {index === 0 ? (report.date ? new Date(report.date).toLocaleDateString() : "N/A") : ""}
+            </td>
+            <td className="px-2 py-1 border text-xs truncate">{index === 0 ? report.userName || "N/A" : ""}</td>
+            <td className="px-2 py-1 border text-xs truncate">{index === 0 ? report.agent || "N/A" : ""}</td>
+            <td className="px-2 py-1 border text-xs truncate">{index === 0 ? report.origin || "N/A" : ""}</td>
+            <td className="px-2 py-1 border text-xs truncate">{sportNames[index] || sportNames[0] || "N/A"}</td>
+            <td className="px-2 py-1 border text-xs truncate">{eventNames[index] || eventNames[0] || "N/A"}</td>
+            <td className="px-2 py-1 border text-xs truncate">{marketNames[index] || marketNames[0] || "N/A"}</td>
+            <td className="px-2 py-1 border text-xs truncate">{Number(detail.odds || 0).toFixed(2)}</td>
+            <td className="px-2 py-1 border text-xs truncate">{Number(detail.stack || 0).toFixed(2)}</td>
+            <td className="px-2 py-1 border text-xs truncate">{detail.time || "N/A"}</td>
+            <td className="px-2 py-1 border text-xs truncate">{index === 0 ? Number(report.acBalance || 0).toFixed(2) : ""}</td>
+            <td className="px-2 py-1 border text-xs truncate">{index === 0 ? Number(report.afterVoidBalance || 0).toFixed(2) : ""}</td>
+            <td className="px-2 py-1 border text-xs truncate">{index === 0 ? Number(report.pl || 0).toFixed(2) : ""}</td>
+            <td className="px-2 py-1 border text-xs truncate">{index === 0 ? report.catchBy || "N/A" : ""}</td>
+            <td className="px-2 py-1 border text-xs truncate">{index === 0 ? report.proofType || "N/A" : ""}</td>
+            <td className="px-2 py-1 border text-xs truncate">{index === 0 ? report.proofStatus || "N/A" : ""}</td>
+            <td className="px-2 py-1 border text-xs truncate">{index === 0 ? report.remark || "N/A" : ""}</td>
+            <td className="px-2 py-1 border text-xs">
+              {index === 0 && (
+                <div className="flex space-x-1">
+                  <button onClick={() => handlePreview(report)} className="text-blue-500">
+                    <FaEye />
+                  </button>
+                  <button onClick={() => handleEdit(report._id)} className="text-yellow-500">
+                    <FaEdit />
+                  </button>
+                  <button onClick={() => handleDelete(report._id)} className="text-red-500">
+                    <FaTrash />
+                  </button>
+                </div>
+              )}
+            </td>
+          </tr>
+        ));
+      })}
+    </tbody>
+  </table>
+</div>
+              <div className="flex justify-between items-center mt-4">
+                <div>
+                  <select
+                    value={entriesPerPage}
+                    onChange={(e) => setEntriesPerPage(Number(e.target.value))}
+                    className="p-2 border rounded"
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                  <span className="ml-2">
+                    Showing {(currentPage - 1) * entriesPerPage + 1} to{" "}
+                    {Math.min(currentPage * entriesPerPage, sortedReports.length)} of{" "}
+                    {sortedReports.length} entries
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="px-4 py-2 border rounded disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <span>
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="px-4 py-2 border rounded disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                  <input
+                    type="number"
+                    value={gotoPage}
+                    onChange={(e) => setGotoPage(e.target.value)}
+                    className="w-16 p-2 border rounded"
+                    placeholder="Go to"
+                  />
+                  <button
+                    onClick={handleGotoPage}
+                    className="px-4 py-2 border rounded bg-blue-500 text-white"
+                  >
+                    Go
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+          {previewOpen && currentReport && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+              <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
+                <h2 className="text-xl font-bold mb-4">Report Preview</h2>
+                <p><strong>User Name:</strong> {currentReport.userName}</p>
+                <p><strong>Agent:</strong> {currentReport.agent}</p>
+                <p><strong>Origin:</strong> {currentReport.origin}</p>
+                <p><strong>Sport Names:</strong> {currentReport.sportNames.join(", ")}</p>
+                <p><strong>Event Names:</strong> {currentReport.eventNames.join(", ")}</p>
+                <p><strong>Market Names:</strong> {currentReport.marketNames.join(", ")}</p>
+                <p><strong>Multi Sport:</strong> {currentReport.multiSport || "N/A"}</p>
+                <p><strong>Multi Event:</strong> {currentReport.multiEvent || "N/A"}</p>
+                <p><strong>Multi Market:</strong> {currentReport.multiMarket || "N/A"}</p>
+                <p><strong>Account Balance:</strong> {currentReport.acBalance}</p>
+                <p><strong>After Void Balance:</strong> {currentReport.afterVoidBalance}</p>
+                <p><strong>P&L:</strong> {currentReport.pl}</p>
+                <p><strong>Bet Details:</strong></p>
+                <ul>
                   {currentReport.betDetails.map((detail, index) => (
                     <li key={index}>
-                      Odds: {detail.odds?.toFixed(2) || "0.00"}, Stack: {detail.stack?.toFixed(2) || "0.00"}, Time:{" "}
-                      {detail.time || "12:00:00 AM"}
+                      Odds: {detail.odds}, Stack: {detail.stack}, Time: {detail.time}
                     </li>
                   ))}
                 </ul>
-              ) : (
-                <p>-</p>
-              )}
-              <p>
-                <strong>Catch By:</strong> {currentReport.catchBy || "-"}
-              </p>
-              <p>
-                <strong>Proof Type:</strong> {currentReport.proofType || "-"}
-              </p>
-              <p>
-                <strong>Proof Status:</strong> {currentReport.proofStatus || "-"}
-              </p>
-              <p>
-                <strong>Remark:</strong> {currentReport.remark || "-"}
-              </p>
+                {currentReport.multiBetDetails.length > 0 && (
+                  <>
+                    <p><strong>Multi Bet Details:</strong></p>
+                    <ul>
+                      {currentReport.multiBetDetails.map((detail, index) => (
+                        <li key={index}>
+                          Odds: {detail.odds}, Stack: {detail.stack}, Time: {detail.time}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                <p><strong>Catch By:</strong> {currentReport.catchBy}</p>
+                <p><strong>Proof Type:</strong> {currentReport.proofType}</p>
+                <p><strong>Proof Status:</strong> {currentReport.proofStatus}</p>
+                <p><strong>Remark:</strong> {currentReport.remark}</p>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    onClick={() => setPreviewOpen(false)}
+                    className="bg-gray-500 text-white px-4 py-2 rounded"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        )}
-        <div className="mt-6 flex justify-end">
-          <button
-            onClick={() => setPreviewOpen(false)}
-            className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
-          >
-            Close
-          </button>
+          )}
         </div>
-      </div>
-    </div>
-  );
+      ) : (
+        <div>
+          <h1 className="text-2xl font-bold mb-4">
+            {view === "edit" ? "Edit Report" : "Create Report"}
+          </h1>
+          <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium">Date</label>
+                <input
+                  type="date"
+                  name="date"
+                  value={formData.date}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">User Name *</label>
+                <input
+                  type="text"
+                  name="userName"
+                  value={formData.userName}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Agent *</label>
+                <input
+                  type="text"
+                  name="agent"
+                  value={formData.agent}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Origin</label>
+                <input
+                  type="text"
+                  name="origin"
+                  value={formData.origin}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+            </div>
 
-  return (
-    <div className="antialiased">
-      {view === "list" && renderList()}
-      {(view === "create" || view === "edit") && renderForm()}
-      {previewOpen && renderPreview()}
+            <h2 className="text-lg font-semibold mt-6 mb-2">Original Section *</h2>
+            <div className="border p-4 rounded mb-4">
+              {formData.original.sportNames.map((sport, index) => (
+                <div key={index} className="mb-4">
+                  <label className="block text-sm font-medium">Sport Name *</label>
+                  <div className="flex items-center space-x-2">
+                    <select
+                      name="sportNames"
+                      value={sport}
+                      onChange={(e) => handleInputChange(e, "original", index, "sportNames")}
+                      className="w-full p-2 border rounded"
+                      required
+                    >
+                      <option value="">Select Sport</option>
+                      {sportNameOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    {formData.original.sportNames.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeFieldEntry("sportNames", index)}
+                        className="text-red-500"
+                      >
+                        Remove
+                      </button>
+                    )}
+                    {index === formData.original.sportNames.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={() => addFieldEntry("sportNames")}
+                        className="text-green-500 flex items-center"
+                      >
+                        <FaPlus className="mr-1" /> Add
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {formData.original.eventNames.map((event, index) => (
+                <div key={index} className="mb-4">
+                  <label className="block text-sm font-medium">Event Name *</label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="text"
+                      name="eventNames"
+                      value={event}
+                      onChange={(e) => handleInputChange(e, "original", index, "eventNames")}
+                      className="w-full p-2 border rounded"
+                      required
+                    />
+                    {formData.original.eventNames.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeFieldEntry("eventNames", index)}
+                        className="text-red-500"
+                      >
+                        Remove
+                      </button>
+                    )}
+                    {index === formData.original.eventNames.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={() => addFieldEntry("eventNames")}
+                        className="text-green-500 flex items-center"
+                      >
+                        <FaPlus className="mr-1" /> Add
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {formData.original.marketNames.map((market, index) => (
+                <div key={index} className="mb-4">
+                  <label className="block text-sm font-medium">Market Name *</label>
+                  <div className="flex items-center space-x-2">
+                    <select
+                      name="marketNames"
+                      value={market}
+                      onChange={(e) => handleInputChange(e, "original", index, "marketNames")}
+                      className="w-full p-2 border rounded"
+                      required
+                    >
+                      <option value="">Select Market</option>
+                      {marketNameOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    {formData.original.marketNames.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeFieldEntry("marketNames", index)}
+                        className="text-red-500"
+                      >
+                        Remove
+                      </button>
+                    )}
+                    {index === formData.original.marketNames.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={() => addFieldEntry("marketNames")}
+                        className="text-green-500 flex items-center"
+                      >
+                        <FaPlus className="mr-1" /> Add
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <h3 className="text-md font-semibold mt-4 mb-2">Bet Details *</h3>
+              {formData.original.betDetails.map((detail, index) => (
+                <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                  <div>
+                    <label className="block text-sm font-medium">Odds *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      name="odds"
+                      value={detail.odds}
+                      onChange={(e) => handleInputChange(e, "original", index)}
+                      className="w-full p-2 border rounded"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium">Stack *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      name="stack"
+                      value={detail.stack}
+                      onChange={(e) => handleInputChange(e, "original", index)}
+                      className="w-full p-2 border rounded"
+                      required
+                    />
+                  </div>
+                  <div className="flex items-end space-x-2">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium">Time (12-hour) *</label>
+                      <input
+                        type="text"
+                        name="time"
+                        value={detail.time}
+                        onChange={(e) => handleInputChange(e, "original", index)}
+                        placeholder="e.g., 12:00:00 AM"
+                        className="w-full p-2 border rounded"
+                        required
+                      />
+                    </div>
+                    {formData.original.betDetails.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeBetDetail("original", index)}
+                        className="text-red-500"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => addBetDetail("original")}
+                className="text-green-500 flex items-center mt-2"
+              >
+                <FaPlus className="mr-1" /> Add Bet Detail
+              </button>
+            </div>
+
+            <div className="flex items-center mb-4">
+              <input
+                type="checkbox"
+                checked={formData.multiple.enabled}
+                onChange={toggleMultipleSection}
+                className="mr-2"
+              />
+              <label className="text-sm font-medium">Enable Multiple Section</label>
+            </div>
+            {formData.multiple.enabled && (
+              <div className="border p-4 rounded mb-4">
+                <h2 className="text-lg font-semibold mb-2">Multiple Section</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium">Sport Name</label>
+                    <select
+                      name="sportName"
+                      value={formData.multiple.sportName}
+                      onChange={(e) => handleInputChange(e, "multiple")}
+                      className="w-full p-2 border rounded"
+                    >
+                      <option value="">Select Sport</option>
+                      {sportNameOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium">Event Name</label>
+                    <input
+                      type="text"
+                      name="eventName"
+                      value={formData.multiple.eventName}
+                      onChange={(e) => handleInputChange(e, "multiple")}
+                      className="w-full p-2 border rounded"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium">Market Name</label>
+                    <select
+                      name="marketName"
+                      value={formData.multiple.marketName}
+                      onChange={(e) => handleInputChange(e, "multiple")}
+                      className="w-full p-2 border rounded"
+                    >
+                      <option value="">Select Market</option>
+                      {marketNameOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <h3 className="text-md font-semibold mt-4 mb-2">Bet Details</h3>
+                {formData.multiple.betDetails.map((detail, index) => (
+                  <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                    <div>
+                      <label className="block text-sm font-medium">Odds</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        name="odds"
+                        value={detail.odds}
+                        onChange={(e) => handleInputChange(e, "multiple", index)}
+                        className="w-full p-2 border rounded"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Stack</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        name="stack"
+                        value={detail.stack}
+                        onChange={(e) => handleInputChange(e, "multiple", index)}
+                        className="w-full p-2 border rounded"
+                      />
+                    </div>
+                    <div className="flex items-end space-x-2">
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium">Time (12-hour)</label>
+                        <input
+                          type="text"
+                          name="time"
+                          value={detail.time}
+                          onChange={(e) => handleInputChange(e, "multiple", index)}
+                          placeholder="e.g., 12:00:00 AM"
+                          className="w-full p-2 border rounded"
+                        />
+                      </div>
+                      {formData.multiple.betDetails.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeBetDetail("multiple", index)}
+                          className="text-red-500"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => addBetDetail("multiple")}
+                  className="text-green-500 flex items-center mt-2"
+                >
+                  <FaPlus className="mr-1" /> Add Bet Detail
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-medium">Account Balance</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  name="acBalance"
+                  value={formData.acBalance}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">After Void Balance</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  name="afterVoidBalance"
+                  value={formData.afterVoidBalance}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">P&L</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  name="pl"
+                  value={formData.pl}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-medium">Catch By *</label>
+                <select
+                  name="catchBy"
+                  value={formData.catchBy}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                  required
+                >
+                  <option value="">Select Catch By</option>
+                  {catchByOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Proof Type *</label>
+                <select
+                  name="proofType"
+                  value={formData.proofType}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                  required
+                >
+                  {proofTypeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-medium">Proof Status *</label>
+                <select
+                  name="proofStatus"
+                  value={formData.proofStatus}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                  required
+                >
+                  {proofStatusOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Remark</label>
+                <input
+                  type="text"
+                  name="remark"
+                  value={formData.remark}
+                  onChange={(e) => handleInputChange(e)}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end space-x-4">
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="bg-gray-500 text-white px-4 py-2 rounded"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="bg-blue-500 text-white px-4 py-2 rounded"
+              >
+                {view === "edit" ? "Update Report" : "Create Report"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };
